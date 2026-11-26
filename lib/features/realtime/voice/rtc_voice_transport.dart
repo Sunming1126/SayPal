@@ -13,6 +13,7 @@ import '../../../core/config/service_endpoint.dart';
 import 'conversation_context.dart';
 import 'voice_transport.dart';
 import 'volc_external_audio.dart';
+import 'volc_room_bridge.dart';
 import 'websocket_voice_transport.dart';
 
 class RtcSessionCredentials {
@@ -268,7 +269,7 @@ class VolcRtcAudioBridge implements RtcAudioBridge {
     );
     _room = await _engine!.createRTCRoom(credentials.roomId);
     if (_room == null) throw const VoiceFailure('小蓝暂时没准备好，请重试。');
-    await _room!.setRTCRoomEventHandler(roomHandler);
+    await setVolcRoomEventHandler(_room!, roomHandler);
     _joinCompleter = Completer<void>();
     final result = await _room!.joinRoom(
       token: credentials.token,
@@ -343,9 +344,17 @@ class VolcRtcAudioBridge implements RtcAudioBridge {
         _captureStarted = true;
       }
     }
-    final result = await _room!.publishStreamAudio(publishing);
-    if (result != null && result < 0) {
-      throw const VoiceFailure('麦克风暂时无法使用，请重试。');
+    if (!publishing && !_captureStarted) return;
+    try {
+      final result = await _room!.publishStreamAudio(publishing);
+      if (result != null && result < 0) {
+        throw const VoiceFailure('麦克风暂时无法使用，请重试。');
+      }
+    } finally {
+      if (!publishing && _captureStarted) {
+        _captureStarted = false;
+        await _engine!.stopAudioCapture();
+      }
     }
   }
 
@@ -368,11 +377,16 @@ class VolcRtcAudioBridge implements RtcAudioBridge {
     if (_closed || _room == null) {
       throw const VoiceFailure('连接已断开，请重试。');
     }
-    final result = await _room!.sendUserBinaryMessage(
-      userId: userId,
-      buffer: data,
-      config: MessageConfig.reliable_ordered,
-    );
+    final int? result;
+    try {
+      result = await sendVolcUserBinaryMessage(_room!, userId, data);
+    } catch (error, stack) {
+      if (kDebugMode) {
+        debugPrint('SayPal RTC control send failed (${error.runtimeType})');
+        debugPrintStack(stackTrace: stack, maxFrames: 6);
+      }
+      rethrow;
+    }
     if (result != null && result < 0) {
       throw const VoiceFailure('语音暂时无法发送，请重试。');
     }
@@ -963,17 +977,21 @@ class RtcVoiceTransport implements VoiceTransport {
   Future<void> record(
       {required bool automaticEnd, required void Function() onEnd}) async {
     if (!_rtcActive) throw const VoiceFailure('连接已断开，请重试。');
+    _turnGeneration++;
     _voiceDraft.clear();
     _latestVoiceText = '';
     _manualTurnOpen = true;
-    _recordingLimit = Timer(const Duration(seconds: 60), onEnd);
     try {
       // Even if the deployed server still uses VAD auto-submit, the child
       // never hears an answer before explicitly ending the turn.
       await _bridge.setRemoteMuted(true);
       await _setPublishingInOrder(true);
+      _recordingLimit = Timer(const Duration(seconds: 60), onEnd);
     } catch (_) {
       _manualTurnOpen = false;
+      try {
+        await _setPublishingInOrder(false);
+      } catch (_) {}
       await _restoreRemoteAudio();
       _recordingLimit?.cancel();
       rethrow;
@@ -982,39 +1000,16 @@ class RtcVoiceTransport implements VoiceTransport {
 
   @override
   Future<void> endRecording() async {
-    _recordingLimit?.cancel();
-    await _setPublishingInOrder(false);
+    final generation = _turnGeneration;
+    await stopRecording();
+    final asrClock = kDebugMode ? (Stopwatch()..start()) : null;
     await _awaitFinalVoiceText();
-    final text = _draftText.trim();
-    if (text.isEmpty) {
-      await _interruptPrematureReply();
-      _manualTurnOpen = false;
-      await _restoreRemoteAudio();
-      _events.add({'type': 'no_speech'});
-      return;
+    if (_closed || generation != _turnGeneration || !_manualTurnOpen) return;
+    if (asrClock != null) {
+      debugPrint('SayPal RTC capture: asr_tail ${asrClock.elapsedMilliseconds}ms');
     }
-    _events.add({
-      'type': 'transcript',
-      'id': 'rtc-child-${DateTime.now().microsecondsSinceEpoch}',
-      'text': text,
-    });
-    _events.add({'type': 'partial', 'text': ''});
-    _manualTurnOpen = false;
-    _awaitingReply = true;
-    try {
-      await _bridge.sendControl(
-        userId: _credentials!.botUserId,
-        data: encodeRtcControl(
-          command: 'ExternalTextToLLM',
-          message: text,
-        ),
-      );
-    } finally {
-      _manualTurnOpen = false;
-      await _restoreRemoteAudio();
-      _voiceDraft.clear();
-      _latestVoiceText = '';
-    }
+    _pendingBufferedText = _draftText.trim();
+    await commitBufferedAudio();
   }
 
   String get _draftText {
@@ -1069,6 +1064,7 @@ class RtcVoiceTransport implements VoiceTransport {
 
   @override
   Future<void> cancelRecording() async {
+    _turnGeneration++;
     await stopRecording();
     if (_manualTurnOpen) await _interruptPrematureReply();
     _manualTurnOpen = false;

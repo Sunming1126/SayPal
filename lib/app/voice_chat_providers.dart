@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/config/app_config.dart';
@@ -5,6 +7,8 @@ import '../features/chat/voice/voice_chat_providers.dart';
 import '../features/realtime/voice/buffered_pcm_recorder.dart';
 import '../features/realtime/voice/conversation_context.dart';
 import '../features/realtime/voice/rtc_voice_transport.dart';
+import '../features/realtime/voice/voice_conversation_providers.dart'
+    show nativeVoiceRecordingProvider;
 import '../features/realtime/voice/websocket_voice_transport.dart';
 import '../features/vocabulary/providers/vocabulary_providers.dart';
 import '../features/statistics/providers/statistics_providers.dart';
@@ -52,6 +56,8 @@ final voiceTransportOverride =
 
 final voiceFeatureOverrides = [
   voiceTransportOverride,
+  if (rtcChatEnabled && Platform.isAndroid)
+    nativeVoiceRecordingProvider.overrideWithValue(true),
   if (effectiveChatTransport == 'websocket')
     pcmRecorderFactoryProvider.overrideWithValue(
       // The server closes on more than 30 seconds of PCM. Leave room for the

@@ -195,6 +195,7 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
     this.context = const ConversationContext.freeChat(),
     this.savePractice,
     PcmRecorderFactory? recorderFactory,
+    this.useTransportRecording = false,
     this.idleTimeout = const Duration(seconds: 45),
   }) : _recorderFactory = recorderFactory ?? BufferedPcmRecorder.new,
        super(const VoiceChatState());
@@ -203,6 +204,7 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
   final ConversationContext context;
   final VoicePracticeSink? savePractice;
   final Duration idleTimeout;
+  final bool useTransportRecording;
   final PcmRecorderFactory _recorderFactory;
   final _practiceClock = Stopwatch();
   final List<Uint8List> _audioQueue = <Uint8List>[];
@@ -338,7 +340,7 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
       pendingTurnKind: PendingTurnKind.none,
       thinkingStartedAt: null,
     );
-    await _discardLocalRecording();
+    await _discardLocalRecording(waitForTransportStart: false);
   }
 
   void _error(Object error) {
@@ -627,7 +629,7 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
     _hasAudio = false;
     _voiceTurnPending = true;
     _practiceClock.start();
-    final PcmRecorder recorder = _recorderFactory();
+    final recorder = useTransportRecording ? null : _recorderFactory();
     _recorder = recorder;
     final int captureGeneration = ++_captureGeneration;
     state = state.copy(
@@ -641,19 +643,16 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
     );
     warmUp();
     final int epoch = _epoch;
-    final start = _recorderStart = recorder.start(
-      onLimit: () {
-        if (mounted && epoch == _epoch) {
-          unawaited(_stopAtRecordingLimit(epoch));
-        }
-      },
-    );
-    _voiceUploadFuture = _uploadRecordingWhenReady(
-      recorder.frames,
-      start,
-      epoch,
-      captureGeneration,
-    );
+    void onLimit() {
+      if (mounted && epoch == _epoch) unawaited(_stopAtRecordingLimit(epoch));
+    }
+    final start = _recorderStart = recorder?.start(onLimit: onLimit) ??
+        _startTransportRecording(epoch, captureGeneration, onLimit);
+    if (recorder != null) {
+      _voiceUploadFuture = _uploadRecordingWhenReady(
+        recorder.frames, start, epoch, captureGeneration,
+      );
+    }
     try {
       await start;
     } catch (error) {
@@ -678,6 +677,20 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
         state.capturePhase == VoiceCapturePhase.recording) {
       state = state.copy(isMicrophonePublishing: true);
     }
+  }
+
+  Future<void> _startTransportRecording(
+    int epoch,
+    int generation,
+    void Function() onLimit,
+  ) async {
+    await connect();
+    if (!mounted || epoch != _epoch || generation != _captureGeneration) return;
+    final transport = _transport;
+    if (transport == null || !state.botReady) {
+      throw const VoiceFailure('语音连接未准备好，请重试。');
+    }
+    await transport.record(automaticEnd: false, onEnd: onLimit);
   }
 
   Future<Object?> _uploadRecordingWhenReady(
@@ -742,7 +755,11 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
         throw const VoiceFailure('语音连接未准备好，请重试。');
       }
       _watchdog(90);
-      await transport.commitBufferedAudio();
+      if (useTransportRecording) {
+        await transport.endRecording();
+      } else {
+        await transport.commitBufferedAudio();
+      }
       _logRelease('submit_completed', releaseClock);
       if (mounted && epoch == _epoch) {
         _recorder = null;
@@ -796,6 +813,7 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
     await _discardLocalRecording();
     if (!mounted || epoch != _epoch) return;
     try {
+      if (useTransportRecording) await transport?.cancelRecording();
       await transport?.cancelPendingTurn();
     } catch (_) {}
     await upload;
@@ -820,7 +838,11 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
       notice: '已达录音上限，松手发送。',
     );
     try {
-      await _recorder?.stop();
+      if (useTransportRecording) {
+        await _transport?.stopRecording();
+      } else {
+        await _recorder?.stop();
+      }
     } catch (error) {
       if (mounted && epoch == _epoch) {
         await pause();
@@ -1143,19 +1165,18 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
     }
   }
 
-  Future<void> _discardLocalRecording() async {
+  Future<void> _discardLocalRecording({bool waitForTransportStart = true}) async {
     final recorder = _recorder;
     final start = _recorderStart;
     _recorder = null;
     _recorderStart = null;
     _captureGeneration++;
     _voiceUploadFuture = null;
-    if (recorder == null) return;
     try {
-      await start;
+      if (recorder != null || waitForTransportStart) await start;
     } catch (_) {}
     try {
-      await recorder.dispose();
+      await recorder?.dispose();
     } catch (_) {}
   }
 

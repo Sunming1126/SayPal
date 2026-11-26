@@ -194,6 +194,27 @@ void main() {
     expect(state.canStartTurn, isTrue);
   });
 
+  test('native capture submits through the transport without buffering PCM', () async {
+    final transport = _FakeVoiceTransport();
+    final controller = VoiceConversationController(
+      () => transport,
+      useTransportRecording: true,
+      recorderFactory: () => throw StateError('must use the RTC microphone'),
+    );
+    late VoiceChatState state;
+    controller.addListener((current) => state = current);
+    addTearDown(controller.dispose);
+
+    await controller.startRecording();
+    expect(transport.nativeStarts, 1);
+    transport.emit({'type': 'partial', 'text': 'hello'});
+    final release = controller.endRecording();
+    expect(state.displayMessages.single.text, 'hello');
+    await release;
+    expect(transport.nativeEnds, 1);
+    expect(transport.commits, 0);
+  });
+
   test(
     'partial replies keep the turn busy and missing audio permits next turn',
     () async {
@@ -225,6 +246,8 @@ class _FakeVoiceTransport implements VoiceTransport {
   final _events = StreamController<Map<String, dynamic>>.broadcast(sync: true);
   final sent = <String>[];
   int commits = 0;
+  int nativeStarts = 0;
+  int nativeEnds = 0;
   bool get closed => _events.isClosed;
 
   @override
@@ -251,6 +274,19 @@ class _FakeVoiceTransport implements VoiceTransport {
   @override
   Future<void> commitBufferedAudio() async {
     commits++;
+  }
+
+  @override
+  Future<void> record({
+    required bool automaticEnd,
+    required void Function() onEnd,
+  }) async {
+    nativeStarts++;
+  }
+
+  @override
+  Future<void> endRecording() async {
+    nativeEnds++;
   }
 
   @override

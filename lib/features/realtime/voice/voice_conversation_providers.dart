@@ -13,6 +13,8 @@ final pcmRecorderFactoryProvider = Provider<PcmRecorderFactory>(
   (ref) => BufferedPcmRecorder.new,
 );
 
+final nativeVoiceRecordingProvider = Provider<bool>((ref) => false);
+
 final voicePracticeSinkProvider =
     Provider<VoicePracticeSink>((ref) => (_, __, ___) async {});
 
@@ -23,5 +25,6 @@ final voiceConversationProvider = StateNotifierProvider.autoDispose
     context: context,
     savePractice: ref.watch(voicePracticeSinkProvider),
     recorderFactory: ref.watch(pcmRecorderFactoryProvider),
+    useTransportRecording: ref.watch(nativeVoiceRecordingProvider),
   ),
 );
