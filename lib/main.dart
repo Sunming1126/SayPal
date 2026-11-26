@@ -71,7 +71,7 @@ Future<void> main() async {
   // 登录与会员链路：只在配置了账号服务地址时启用；
   // 否则保持默认的离线演示实现（DemoAuthService / DemoMembershipService）。
   final AppConfig config = AppConfig.instance;
-  if (config.isAccountConfigured) {
+  if (Platform.isIOS && config.isAccountConfigured) {
     // iOS 从 Runner Target 内的 GoogleService-Info.plist 读取默认 Firebase App。
     // 其他平台接入时，再用 FlutterFire CLI 生成对应平台的 firebase_options.dart。
     await Firebase.initializeApp();
