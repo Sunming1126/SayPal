@@ -15,7 +15,7 @@ import '../providers/chat_session_providers.dart';
 import '../voice/voice_chat_controller.dart';
 import '../voice/voice_chat_providers.dart';
 
-/// 页面不主动进入 RTC；首次语音或文字操作才按需准备连接。
+/// 前台 RTC 聊天连接由主导航管理。
 class VoiceChatPage extends ConsumerStatefulWidget {
   const VoiceChatPage({super.key});
 
@@ -46,10 +46,12 @@ class _VoiceChatPageState extends ConsumerState<VoiceChatPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
+    if (state == AppLifecycleState.resumed) {
+      ref.read(voiceChatProvider.notifier).setForeground(true);
+    } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
-      unawaited(ref.read(voiceChatProvider.notifier).pause());
+      ref.read(voiceChatProvider.notifier).setForeground(false);
     }
   }
 

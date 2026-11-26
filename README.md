@@ -10,6 +10,8 @@ SayPal 是一个 Flutter iOS 英语口语练习 App。当前工程的前端从 i
 
 iOS 和 Android 的线上语音默认走火山 RTC，使用豆包语音合成 2.0 的 Vivi 音色。麦克风音频和字幕在 RTC 房间实时传输，松手后才提交本轮，AI 音频由房间直接播放。请看 [线上检查记录](docs/ONLINE_CHECK.md)。登录按要求暂不处理。
 
+进入「聊一聊」时建立连接，前台停留期间复用房间。切到其他标签或 App 进入后台时退出房间。Debug 日志中的 `SayPal RTC release`、`capture` 和 `reply` 分别记录松手到消息入列表、识别收尾、指令到字幕的耗时，只记录时长。
+
 换电脑或轮换凭证时，可在具备 `onesay-server` SSH 权限的电脑重新生成配置（不会启动 App）：
 
 ```sh

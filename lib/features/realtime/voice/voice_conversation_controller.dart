@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'conversation_context.dart';
@@ -210,6 +211,7 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
   Timer? _deadline;
   Timer? _idleReleaseTimer;
   Future<void>? _connectFuture;
+  Future<void>? _pauseFuture;
   PcmRecorder? _recorder;
   Future<void>? _recorderStart;
   Future<Object?>? _voiceUploadFuture;
@@ -225,6 +227,9 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
   bool _serverDone = false;
   bool _playing = false;
   bool _hasAudio = false;
+  bool _keepConnected = false;
+  bool _inForeground = true;
+  Stopwatch? _releaseClock;
 
   void _watchdog(int seconds) {
     _cancelIdleRelease();
@@ -238,24 +243,30 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
   }
 
   Future<void> connect() {
+    if (!state.isTabVisible || !_inForeground) return Future<void>.value();
+    final closing = _pauseFuture;
+    if (closing != null) {
+      return closing.then((_) => mounted ? connect() : null);
+    }
     if (_transport != null && state.botReady) {
       return _connectFuture ?? Future<void>.value();
     }
     if (_connectFuture != null) return _connectFuture!;
-    return _connectFuture ??= _connectWithRetries().whenComplete(() {
-      _connectFuture = null;
+    late final Future<void> opening;
+    opening = _connectWithRetries().whenComplete(() {
+      if (identical(_connectFuture, opening)) _connectFuture = null;
     });
+    return _connectFuture = opening;
   }
 
-  /// Starts the billable connection only after the child expresses input
-  /// intent. It is deliberately silent in the UI.
+  /// Prepares the connection without starting microphone capture.
   void warmUp() {
     if (!mounted || !state.isTabVisible || state.botReady) return;
     unawaited(connect());
   }
 
   Future<void> _connectWithRetries() async {
-    final int epoch = ++_epoch;
+    final int epoch = _epoch;
     const delays = <Duration>[
       Duration.zero,
       Duration(milliseconds: 800),
@@ -290,6 +301,8 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
       });
       _subscription = subscription;
       try {
+        if (state.isMuted) await transport.setPlaybackMuted(true);
+        if (!mounted || epoch != _epoch) return;
         await transport.connect(context: context);
         if (!mounted || epoch != _epoch) {
           await transport.close();
@@ -394,6 +407,7 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
             state = state.copy(partial: event['text'] as String? ?? '');
           }
         case 'no_speech':
+          _releaseClock = null;
           _deadline?.cancel();
           _voiceTurnPending = false;
           state = state.copy(
@@ -410,25 +424,9 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
           );
           _scheduleIdleRelease();
         case 'reconnecting':
-          await _transport?.cancelRecording();
-          _voiceTurnPending = false;
-          state = state.copy(
-            phase: VoicePhase.connecting,
-            partial: '',
-            isAwaitingFirstReply: false,
-            isMicrophonePublishing: false,
-            isReconnecting: true,
-            botReady: false,
-          );
+          state = state.copy(isReconnecting: true);
         case 'reconnected':
-          state = state.copy(
-            phase: VoicePhase.ready,
-            error: '',
-            notice: '',
-            isReconnecting: false,
-            connectionStage: VoiceConnectionStage.ready,
-            botReady: true,
-          );
+          state = state.copy(isReconnecting: false);
         case 'transcript':
           _cancelIdleRelease();
           if (_voiceTurnPending) {
@@ -488,6 +486,8 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
             ),
           );
         case 'reply_segment':
+          final releaseClock = _releaseClock;
+          _releaseClock = null;
           _cancelIdleRelease();
           state = state.copy(
             isAwaitingFirstReply: false,
@@ -502,6 +502,7 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
               child: false,
             ),
           );
+          _logRelease('first_message', releaseClock);
         case 'reply_meta':
           final Map<String, String> translations = <String, String>{};
           if (event['items'] is List) {
@@ -579,11 +580,20 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
             thinkingStartedAt: null,
           );
         case 'disconnected':
+          final interrupted = state.isAwaitingFirstReply ||
+              state.capturePhase != VoiceCapturePhase.idle;
           final String message = state.error.isEmpty
               ? '连接已结束，重连后会开启新的练习。'
               : state.error;
           await pause();
           if (!mounted || _epoch != epoch + 1) return;
+          if (_keepConnected && state.isTabVisible && _inForeground) {
+            await connect();
+            if (mounted && state.isTabVisible && state.botReady && interrupted) {
+              state = state.copy(notice: '连接已恢复，刚才的话可以再发一次。');
+            }
+            return;
+          }
           state = state.copy(
             error: message,
             notice: '',
@@ -704,6 +714,9 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
     final start = _recorderStart;
     final upload = _voiceUploadFuture;
     final String turnId = 'voice-${DateTime.now().microsecondsSinceEpoch}';
+    final releaseClock = _releaseClock = kDebugMode && _keepConnected
+        ? (Stopwatch()..start())
+        : null;
     state = state.copy(
       phase: VoicePhase.waiting,
       isAwaitingFirstReply: true,
@@ -718,16 +731,19 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
       await start;
       if (!mounted || epoch != _epoch || state.pendingTurnId != turnId) return;
       await recorder?.stop();
+      _logRelease('recorder_stopped', releaseClock);
       final uploadError = await upload;
       if (!mounted || epoch != _epoch || state.pendingTurnId != turnId) return;
       _voiceUploadFuture = null;
       if (uploadError != null) throw uploadError;
+      _logRelease('ready_to_submit', releaseClock);
       final transport = _transport;
       if (transport == null || !state.botReady) {
         throw const VoiceFailure('语音连接未准备好，请重试。');
       }
       _watchdog(90);
       await transport.commitBufferedAudio();
+      _logRelease('submit_completed', releaseClock);
       if (mounted && epoch == _epoch) {
         _recorder = null;
         _recorderStart = null;
@@ -744,11 +760,51 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
     }
   }
 
+  void _logRelease(String stage, Stopwatch? clock) {
+    if (clock != null) {
+      debugPrint('SayPal RTC release: $stage +${clock.elapsedMilliseconds}ms');
+    }
+  }
+
   Future<void> cancelRecording() async {
     if (state.capturePhase == VoiceCapturePhase.recording ||
         state.capturePhase == VoiceCapturePhase.paused) {
+      if (_keepConnected) {
+        await _cancelVoiceInput();
+        return;
+      }
       await pause();
     }
+  }
+
+  Future<void> _cancelVoiceInput({String notice = ''}) async {
+    final epoch = _epoch;
+    final upload = _voiceUploadFuture;
+    final transport = _transport;
+    _deadline?.cancel();
+    _releaseClock = null;
+    _voiceTurnPending = false;
+    state = state.copy(
+      capturePhase: VoiceCapturePhase.submitting,
+      isAwaitingFirstReply: false,
+      isMicrophonePublishing: false,
+      pendingTurnId: '',
+      pendingTurnKind: PendingTurnKind.none,
+      thinkingStartedAt: null,
+      partial: '',
+    );
+    await _discardLocalRecording();
+    if (!mounted || epoch != _epoch) return;
+    try {
+      await transport?.cancelPendingTurn();
+    } catch (_) {}
+    await upload;
+    if (!mounted || epoch != _epoch) return;
+    state = state.copy(
+      phase: state.botReady ? VoicePhase.ready : VoicePhase.connecting,
+      capturePhase: VoiceCapturePhase.idle,
+      notice: notice,
+    );
   }
 
   Future<void> _stopAtRecordingLimit(int epoch) async {
@@ -839,9 +895,14 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
 
   Future<void> cancelPendingTurn() async {
     if (!state.isAwaitingFirstReply) return;
+    _releaseClock = null;
     final epoch = _epoch;
     const notice = '已取消等待，可以重新输入。';
     if (state.capturePhase == VoiceCapturePhase.submitting) {
+      if (_keepConnected) {
+        await _cancelVoiceInput(notice: notice);
+        return;
+      }
       await pause();
       if (mounted && _epoch == epoch + 1) state = state.copy(notice: notice);
       return;
@@ -927,20 +988,18 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
   }
 
   /// Starts a fresh local conversation while optionally restoring text history.
-  /// A billable remote room is opened only by the next voice/text action.
   /// Restored messages intentionally contain no audio bytes.
   Future<void> startConversation({
     List<VoiceMessage> messages = const <VoiceMessage>[],
   }) async {
-    final bool muted = state.isMuted;
-    final bool visible = state.isTabVisible;
     await pause();
     if (!mounted) return;
     state = VoiceChatState(
       messages: List<VoiceMessage>.unmodifiable(messages),
-      isMuted: muted,
-      isTabVisible: visible,
+      isMuted: state.isMuted,
+      isTabVisible: state.isTabVisible,
     );
+    if (_keepConnected) warmUp();
   }
 
   /// Mutes AI audio playback. Recording, recognition and text replies are
@@ -981,10 +1040,21 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
     await pause();
   }
 
-  /// Shows the free-chat tab without entering a billable RTC room.
-  Future<void> activate() async {
+  /// Keeps the RTC room open while the free-chat tab is visible.
+  Future<void> activate({bool? keepConnected}) async {
     if (!mounted) return;
+    _keepConnected = keepConnected ?? _keepConnected;
     state = state.copy(isTabVisible: true, keepAliveDeadline: null);
+    if (_keepConnected) warmUp();
+  }
+
+  void setForeground(bool foreground) {
+    _inForeground = foreground;
+    if (!foreground) {
+      unawaited(pause());
+    } else if (_keepConnected) {
+      warmUp();
+    }
   }
 
   void _cancelIdleRelease() {
@@ -994,7 +1064,8 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
 
   void _scheduleIdleRelease() {
     _cancelIdleRelease();
-    if (!mounted ||
+    if (_keepConnected ||
+        !mounted ||
         !state.isTabVisible ||
         _transport == null ||
         state.phase != VoicePhase.ready) {
@@ -1005,9 +1076,16 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
     });
   }
 
-  Future<void> pause() async {
+  Future<void> pause() {
+    if (_pauseFuture != null) return _pauseFuture!;
+    _connectFuture = null;
+    return _pauseFuture = _pause().whenComplete(() => _pauseFuture = null);
+  }
+
+  Future<void> _pause() async {
     _deadline?.cancel();
     _cancelIdleRelease();
+    _releaseClock = null;
     final bool wasRecording = state.capturePhase != VoiceCapturePhase.idle;
     final bool hadPendingTurn = state.isAwaitingFirstReply;
     _epoch++;

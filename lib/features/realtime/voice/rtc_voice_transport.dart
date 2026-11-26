@@ -162,8 +162,8 @@ class VolcRtcAudioBridge implements RtcAudioBridge {
   @override
   Future<void> join(RtcSessionCredentials credentials) async {
     final engineHandler = IRTCEngineEventHandler();
-    engineHandler.onError = (ErrorCode _) {
-      if (!_closed) _events.add({'type': 'rtc_error'});
+    engineHandler.onError = (ErrorCode code) {
+      if (!_closed && kDebugMode) debugPrint('SayPal RTC SDK error: $code');
     };
     engineHandler.onConnectionStateChanged = (state, _) {
       if (_closed) return;
@@ -183,6 +183,16 @@ class VolcRtcAudioBridge implements RtcAudioBridge {
     }
     roomHandler.onUserJoined = (UserInfo userInfo) {
       markBotReady(userInfo.userId);
+    };
+    roomHandler.onUserLeave = (userId, _) {
+      if (!_closed && userId == credentials.botUserId) {
+        _events.add({'type': 'rtc_failed'});
+      }
+    };
+    roomHandler.onRoomStateChangedWithReason = (_, _, state, reason) {
+      if (_closed || state != rtc_types.RoomState.left) return;
+      if (kDebugMode) debugPrint('SayPal RTC left room: $reason');
+      _events.add({'type': 'rtc_failed'});
     };
     roomHandler.onRoomStateChanged = (_, __, state, ___) {
       final pending = _joinCompleter;
@@ -404,6 +414,9 @@ class RtcVoiceTransport implements VoiceTransport {
   String _latestVoiceText = '';
   Completer<void>? _voiceTextChanged;
   Completer<void>? _botReady;
+  Future<void>? _opening;
+  Stopwatch? _firstSubtitleClock;
+  bool _sawBotSubtitle = false;
   int _turnGeneration = 0;
   String _pendingBufferedText = '';
 
@@ -419,13 +432,27 @@ class RtcVoiceTransport implements VoiceTransport {
     _context = context;
     _bridgeSub = _bridge.events.listen(_onBridgeEvent);
     _botReady = Completer<void>();
+    final opening = _opening = _open(context);
+    try {
+      await opening;
+    } catch (_) {
+      if (!_closed) await close();
+      rethrow;
+    } finally {
+      _opening = null;
+    }
+  }
+
+  Future<void> _open(ConversationContext context) async {
     var stage = 'bootstrap';
     try {
       _events.add({'type': 'connection_stage', 'stage': stage});
       _credentials = await _bootstrap(context);
+      if (_closed) return;
       stage = 'join';
       _events.add({'type': 'connection_stage', 'stage': stage});
       await _bridge.join(_credentials!);
+      if (_closed) return;
       stage = 'rtc-start';
       _events.add({'type': 'connection_stage', 'stage': stage});
       await _post(
@@ -433,19 +460,20 @@ class RtcVoiceTransport implements VoiceTransport {
         const {},
         timeout: const Duration(seconds: 10),
       );
+      if (_closed) return;
       _rtcActive = true;
       stage = 'bot-ready';
       _events.add({'type': 'connection_stage', 'stage': stage});
       await _botReady!.future.timeout(const Duration(seconds: 10));
+      if (_closed) return;
       _events.add({'type': 'ready'});
       if (context.needsConfiguration) {
         _events.add({'type': 'configured', 'label': '练习已准备好'});
       }
     } catch (error) {
       lastFailureStage = stage;
-      debugPrint('RtcVoiceTransport failed at stage=$stage');
+      debugPrint('SayPal RTC failed at $stage (${error.runtimeType})');
       _rtcActive = false;
-      await close();
       if (error is VoiceFailure) rethrow;
       if (error is SocketException) {
         throw const VoiceFailure('无法连接语音服务器，请检查网络后重试。');
@@ -538,10 +566,6 @@ class RtcVoiceTransport implements VoiceTransport {
       _events.add({'type': 'disconnected'});
       return;
     }
-    if (event['type'] == 'rtc_error') {
-      _events.add({'type': 'disconnected'});
-      return;
-    }
     if (event['type'] != 'subtitle') return;
     final userId = event['userId'] as String? ?? '';
     final text = event['text'] as String? ?? '';
@@ -561,10 +585,20 @@ class RtcVoiceTransport implements VoiceTransport {
       if (changed != null && !changed.isCompleted) changed.complete();
       return;
     }
-    if (userId != _credentials?.botUserId || _manualTurnOpen || !_awaitingReply || !definite) {
+    if (userId != _credentials?.botUserId || _manualTurnOpen || !_awaitingReply) {
       return;
     }
+    final clock = _firstSubtitleClock;
+    if (clock != null && !_sawBotSubtitle && text.isNotEmpty) {
+      _sawBotSubtitle = true;
+      debugPrint('SayPal RTC reply: first_subtitle +${clock.elapsedMilliseconds}ms');
+    }
+    if (!definite) return;
     if (text.isNotEmpty && _committed.add(key)) {
+      if (clock != null) {
+        debugPrint('SayPal RTC reply: first_definite +${clock.elapsedMilliseconds}ms');
+        _firstSubtitleClock = null;
+      }
       final id = 'rtc-ai-$round-$sequence';
       _events.add({
         'type': 'reply_segment',
@@ -676,7 +710,11 @@ class RtcVoiceTransport implements VoiceTransport {
         await push(padded);
       }
       await _bridge.stopExternalPublishing();
+      final asrClock = kDebugMode ? (Stopwatch()..start()) : null;
       await _awaitFinalVoiceText();
+      if (asrClock != null) {
+        debugPrint('SayPal RTC capture: asr_tail ${asrClock.elapsedMilliseconds}ms');
+      }
       if (_closed || generation != _turnGeneration) return;
       _pendingBufferedText = _draftText.trim();
     } finally {
@@ -707,6 +745,8 @@ class RtcVoiceTransport implements VoiceTransport {
         'text': text,
       });
       _events.add({'type': 'partial', 'text': ''});
+      _firstSubtitleClock = kDebugMode ? (Stopwatch()..start()) : null;
+      _sawBotSubtitle = false;
       await _bridge.sendControl(
         userId: credentials.botUserId,
         data: encodeRtcControl(
@@ -727,6 +767,7 @@ class RtcVoiceTransport implements VoiceTransport {
   @override
   Future<void> cancelPendingTurn() async {
     _turnGeneration++;
+    _firstSubtitleClock = null;
     _awaitingReply = false;
     await _bridge.stopExternalPublishing();
     await _interruptPrematureReply();
@@ -929,6 +970,11 @@ class RtcVoiceTransport implements VoiceTransport {
     if (_closed) return;
     _closed = true;
     _recordingLimit?.cancel();
+    final botReady = _botReady;
+    if (botReady != null && !botReady.isCompleted) botReady.complete();
+    try {
+      await _opening;
+    } catch (_) {}
     try {
       await _captureOperations;
     } catch (_) {}

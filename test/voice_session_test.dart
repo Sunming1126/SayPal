@@ -10,6 +10,53 @@ import 'package:saypal/features/realtime/voice/voice_transport.dart';
 import 'package:saypal/features/realtime/voice/websocket_voice_transport.dart';
 
 void main() {
+  test('visible RTC chat preconnects, stays open, and recovers', () async {
+    final sessions = <_FakeVoiceTransport>[];
+    final recorder = _FakeRecorder()..started.complete();
+    final controller = VoiceConversationController(() {
+      final transport = _FakeVoiceTransport();
+      sessions.add(transport);
+      return transport;
+    }, recorderFactory: () => recorder, idleTimeout: const Duration(milliseconds: 10));
+    late VoiceChatState state;
+    controller.addListener((current) => state = current);
+    addTearDown(controller.dispose);
+
+    await controller.activate(keepConnected: true);
+    await Future<void>.delayed(Duration.zero);
+    expect(sessions, hasLength(1));
+    expect(state.botReady, isTrue);
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    expect(sessions.single.closed, isFalse);
+    await controller.startRecording();
+    await controller.cancelRecording();
+    expect(state.canStartTurn, isTrue);
+    expect(sessions.single.closed, isFalse);
+
+    sessions.single.emit({'type': 'reconnecting'});
+    sessions.single.emit({'type': 'reconnected'});
+    expect(state.botReady, isTrue);
+    expect(sessions, hasLength(1));
+    sessions.single.emit({'type': 'disconnected'});
+    await controller.pause();
+    await Future<void>.delayed(Duration.zero);
+    expect(sessions, hasLength(2));
+    expect(sessions.first.closed, isTrue);
+    expect(state.botReady, isTrue);
+
+    await controller.deactivate();
+    expect(sessions.last.closed, isTrue);
+    controller.setForeground(false);
+    controller.setForeground(true);
+    await Future<void>.delayed(Duration.zero);
+    expect(sessions, hasLength(2));
+    await controller.activate();
+    await Future<void>.delayed(Duration.zero);
+    expect(sessions, hasLength(3));
+    expect(state.botReady, isTrue);
+    await controller.deactivate();
+  });
+
   test('WebSocket connect waits for the application ready message', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));
@@ -174,6 +221,7 @@ class _FakeVoiceTransport implements VoiceTransport {
   final _events = StreamController<Map<String, dynamic>>.broadcast(sync: true);
   final sent = <String>[];
   int commits = 0;
+  bool get closed => _events.isClosed;
 
   @override
   Stream<Map<String, dynamic>> get events => _events.stream;
@@ -228,5 +276,7 @@ class _FakeRecorder implements PcmRecorder {
   Future<void> cancel() async {}
 
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() async {
+    if (!_frames.isClosed) unawaited(_frames.close());
+  }
 }
