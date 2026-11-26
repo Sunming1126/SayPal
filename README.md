@@ -8,7 +8,7 @@ SayPal 是一个 Flutter iOS 英语口语练习 App。当前工程的前端从 i
 
 凭证保存在被忽略、权限为 `600` 的 `ios/Flutter/SayPal.local.xcconfig`，仅由 Debug 配置引用；Release 和 Profile 不包含它。它是测试用客户端访问凭证，火山云端密钥仍只留在服务器。Debug 专用文件设置了完整的 `DART_DEFINES`；如要切换其他配置，先临时移走该文件，再自行传入构建参数。
 
-线上语音回复已恢复，SayPal 使用豆包语音合成 2.0 的 Vivi 音色。现有调试版可以通过原地址连接。请看 [线上检查记录](docs/ONLINE_CHECK.md)。登录按要求暂不处理。
+iOS 和 Android 的线上语音默认走火山 RTC，使用豆包语音合成 2.0 的 Vivi 音色。麦克风音频和字幕在 RTC 房间实时传输，松手后才提交本轮，AI 音频由房间直接播放。请看 [线上检查记录](docs/ONLINE_CHECK.md)。登录按要求暂不处理。
 
 换电脑或轮换凭证时，可在具备 `onesay-server` SSH 权限的电脑重新生成配置（不会启动 App）：
 
@@ -16,6 +16,8 @@ SayPal 是一个 Flutter iOS 英语口语练习 App。当前工程的前端从 i
 python3 tools/fetch_online_config.py
 python3 tools/configure_ios_debug.py
 ```
+
+Windows 使用 `.local/saypal-online.json` 作为 `--dart-define-from-file` 时，旧配置需把 `SAYPAL_CHAT_TRANSPORT` 改为 `rtc`。沿用原有的语音服务地址与客户端测试 Token，无需添加火山云端密钥。`websocket` 仍可显式指定用于兼容检查。
 
 ## 离线演示与本机后端
 
@@ -55,5 +57,5 @@ flutter run -d "iPhone 17" \
 ## 恢复范围
 
 - 从 Build 3 的 Dart Kernel 恢复了 102 个客户端 Dart 文件和 15 个内部包文件，并恢复了情景目录与原始插画。合入前的前端备份在 `.local/pre-build3-frontend`。
-- `backend/` 包含语音服务和 RTC 网关。常规 Debug 构建默认连接已验证的线上 WebSocket，客户端保留了 Build 3 的 RTC 实现。
+- `backend/` 包含语音服务和 RTC 网关。默认使用 Build 3 恢复的 RTC 链路，并适配两端共享的按住说话与字幕交互。
 - 找回了登录和会员客户端代码。独立的账号与会员服务、原 Git 历史和线上服务密钥未随安装包或语音发布目录恢复。默认使用演示登录和会员服务。

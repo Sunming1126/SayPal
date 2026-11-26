@@ -37,7 +37,7 @@ def main():
     if not isinstance(token, str) or not token:
         raise SystemExit('Server did not supply a native-client token.')
     config = {
-        'SAYPAL_CHAT_TRANSPORT': 'websocket',
+        'SAYPAL_CHAT_TRANSPORT': 'rtc',
         'SAYPAL_API_BASE_URL': 'https://onesay.top/saypal/voice',
         'SAYPAL_CHAT_TOKEN': token,
     }

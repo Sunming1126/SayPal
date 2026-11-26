@@ -155,7 +155,6 @@ class RtcGateway:
             "VOLC_SECRET_KEY",
             "OPENSPEECH_APP_ID",
             "ARK_MODEL_ID",
-            "OPENSPEECH_VOICE_TYPE",
         )
         missing = [key for key in required if not os.getenv(key)]
         if not (os.getenv("OPENSPEECH_API_KEY") or os.getenv("OPENSPEECH_ACCESS_TOKEN")):
@@ -221,6 +220,8 @@ class RtcGateway:
         ).strip()
         tts_app_id = os.getenv("RTC_TTS_APP_ID", speech_app_id).strip()
         tts_access_token = os.getenv("RTC_TTS_ACCESS_TOKEN", speech_key).strip()
+        tts_resource = (os.getenv("RTC_TTS_RESOURCE_ID") or "seed-tts-2.0").strip()
+        tts_speaker = (os.getenv("RTC_TTS_SPEAKER") or "zh_female_vv_uranus_bigtts").strip()
         body = {
             "AppId": os.environ["VOLC_RTC_APP_ID"].strip(),
             "RoomId": session.room_id,
@@ -228,6 +229,7 @@ class RtcGateway:
             "AgentConfig": {
                 "UserId": session.bot_user_id,
                 "TargetUserId": [session.user_id],
+                "EnableConversationStateCallback": True,
             },
             "Config": {
                 "ASRConfig": {
@@ -263,14 +265,14 @@ class RtcGateway:
                 "TTSConfig": {
                     "Provider": "volcano_bidirection",
                     "ProviderParams": {
-                        "app": {
-                            "appid": tts_app_id,
-                            "token": tts_access_token,
+                        "Credential": {
+                            "AppId": tts_app_id,
+                            "Token": tts_access_token,
+                            "ResourceId": tts_resource,
                         },
-                        "ResourceId": os.getenv("RTC_TTS_RESOURCE_ID", "seed-tts-2.0"),
-                        "audio": {
-                            "voice_type": os.environ["OPENSPEECH_VOICE_TYPE"].strip()
-                        },
+                        "VolcanoTTSParameters": json.dumps({
+                            "req_params": {"speaker": tts_speaker},
+                        }, separators=(",", ":")),
                     },
                 },
                 "SubtitleConfig": {"DisableRTSSubtitle": False, "SubtitleMode": 1},

@@ -27,7 +27,7 @@ class AppConfig {
   );
   static const String chatTransport = String.fromEnvironment(
     'SAYPAL_CHAT_TRANSPORT',
-    defaultValue: kDebugMode ? 'websocket' : '',
+    defaultValue: _apiBaseUrl == '' ? '' : 'rtc',
   );
   static const String chatToken = String.fromEnvironment('SAYPAL_CHAT_TOKEN');
   static const String _rtcAppId = String.fromEnvironment('SAYPAL_RTC_APP_ID');

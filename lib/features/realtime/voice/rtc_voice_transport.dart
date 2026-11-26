@@ -364,36 +364,30 @@ class VolcRtcAudioBridge implements RtcAudioBridge {
   }
 }
 
-/// RTC handles microphone and AI audio; the existing WebSocket remains a
-/// sidecar for typed messages only. An RTC failure is never silently carried
-/// by the legacy WebSocket link: the internal failure stage is recorded and
-/// the child only ever sees a safe retry message.
+/// RTC handles streaming microphone audio, AI subtitles and remote playback.
+/// The HTTP backend handles session credentials and subtitle translation.
 class RtcVoiceTransport implements VoiceTransport {
   RtcVoiceTransport(
     this.baseUrl, {
     this.token = '',
     RtcAudioBridge? bridge,
-    VoiceTransport? textFallback,
     http.Client? client,
     this.voiceFinalizeTimeout = const Duration(seconds: 2),
   })  : _bridge = bridge ?? VolcRtcAudioBridge(),
-        _fallback =
-            textFallback ?? WebsocketVoiceTransport(baseUrl, token: token),
+        _messageAudio = WebsocketVoiceTransport(baseUrl),
         _client = client ?? http.Client();
 
   final String baseUrl;
   final String token;
   final RtcAudioBridge _bridge;
-  final VoiceTransport _fallback;
+  // Reuse its local MP3 player for saved speech. No socket is opened here.
+  final VoiceTransport _messageAudio;
   final http.Client _client;
   final Duration voiceFinalizeTimeout;
   final _events = StreamController<Map<String, dynamic>>.broadcast();
   StreamSubscription<Map<String, dynamic>>? _bridgeSub;
-  StreamSubscription<Map<String, dynamic>>? _fallbackSub;
   RtcSessionCredentials? _credentials;
   bool _rtcActive = false;
-  bool _fallbackConnected = false;
-  bool _textTurn = false;
   bool _closed = false;
   bool _sessionActive = true;
   bool _playbackMuted = false;
@@ -401,7 +395,12 @@ class RtcVoiceTransport implements VoiceTransport {
   Future<void> _captureOperations = Future<void>.value();
   Timer? _recordingLimit;
   final _committed = <String>{};
+  final _translationJobs = <String, Future<String?>>{};
+  final _translations = <String, String>{};
   final Map<String, String> _voiceDraft = <String, String>{};
+  ConversationContext _context = const ConversationContext.freeChat();
+  int _completedObjectives = 0;
+  bool _awaitingReply = false;
   String _latestVoiceText = '';
   Completer<void>? _voiceTextChanged;
   Completer<void>? _botReady;
@@ -417,10 +416,7 @@ class RtcVoiceTransport implements VoiceTransport {
 
   @override
   Future<void> connect({required ConversationContext context}) async {
-    _fallbackSub = _fallback.events.listen(_onFallbackEvent);
-    // Typed messages are optional. Start the sidecar concurrently so a slow
-    // WebSocket handshake never delays RTC bootstrap/join/start.
-    unawaited(_connectFallback(context));
+    _context = context;
     _bridgeSub = _bridge.events.listen(_onBridgeEvent);
     _botReady = Completer<void>();
     var stage = 'bootstrap';
@@ -461,21 +457,16 @@ class RtcVoiceTransport implements VoiceTransport {
     }
   }
 
-  Future<void> _connectFallback(ConversationContext context) async {
-    try {
-      await _fallback.connect(context: context);
-      if (!_closed) _fallbackConnected = true;
-    } catch (_) {
-      _fallbackConnected = false;
-    }
-  }
-
   Future<RtcSessionCredentials> _bootstrap(ConversationContext context) async {
+    final payload = context.toJson();
+    if (context.kind == ConversationKind.roleplay) {
+      // The restored catalog includes scenes the deployed server does not
+      // know by ID. Use its existing validation for bounded custom scenes.
+      payload['kind'] = ConversationKind.customRoleplay.name;
+    }
     final response = await _post(
         'rtc/session/bootstrap',
-        {
-          'context': context.toJson(),
-        },
+        {'context': payload},
         timeout: const Duration(seconds: 8));
     return RtcSessionCredentials.fromJson(response);
   }
@@ -527,16 +518,6 @@ class RtcVoiceTransport implements VoiceTransport {
     return decoded;
   }
 
-  void _onFallbackEvent(Map<String, dynamic> event) {
-    if (_closed) return;
-    // The sidecar only relays typed turns while the RTC session is healthy;
-    // voice events never come from this link.
-    final type = event['type'];
-    if (!_textTurn || type == 'ready' || type == 'configured') return;
-    _events.add(event);
-    if (type == 'done' || type == 'disconnected') _textTurn = false;
-  }
-
   void _onBridgeEvent(Map<String, dynamic> event) {
     if (_closed) return;
     if (event['type'] == 'bot_ready') {
@@ -570,6 +551,7 @@ class RtcVoiceTransport implements VoiceTransport {
     final sequence = event['sequence'] as int? ?? -1;
     final key = '$userId:$round:$sequence:$text';
     if (userId == _credentials?.userId) {
+      if (!_manualTurnOpen) return;
       _latestVoiceText = text;
       if (definite && paragraph && text.trim().isNotEmpty) {
         _voiceDraft['$round:$sequence'] = text.trim();
@@ -579,31 +561,39 @@ class RtcVoiceTransport implements VoiceTransport {
       if (changed != null && !changed.isCompleted) changed.complete();
       return;
     }
-    if (userId != _credentials?.botUserId ||
-        !definite ||
-        !_committed.add(key)) {
+    if (userId != _credentials?.botUserId || _manualTurnOpen || !_awaitingReply || !definite) {
       return;
     }
-    // A stale server can still auto-submit on VAD silence. Ignore its early
-    // subtitles while the child owns the microphone. The second tap sends an
-    // interrupting ExternalTextToLLM command with the complete transcript.
-    if (_manualTurnOpen) return;
-    _events.add({
-      'type': 'reply_segment',
-      'id': 'rtc-ai-$round-$sequence',
-      'userId': 'rtc-child-$round',
-      'text': text,
-    });
+    if (text.isNotEmpty && _committed.add(key)) {
+      final id = 'rtc-ai-$round-$sequence';
+      _events.add({
+        'type': 'reply_segment',
+        'id': id,
+        'userId': 'rtc-child-$round',
+        'text': text,
+      });
+      if (_translationJobs.length < 3) {
+        unawaited(_translateReply(id, text, reportError: false));
+      }
+    }
+    if (!paragraph) return;
+    _awaitingReply = false;
+    if ((_context.kind == ConversationKind.roleplay ||
+            _context.kind == ConversationKind.customRoleplay) &&
+        _completedObjectives < _context.objectives.length) {
+      _events.add({
+        'type': 'practice_progress',
+        'completed': ++_completedObjectives,
+        'label': '完成一个表达尝试，继续加油！',
+      });
+    }
     _events.add({'type': 'done'});
   }
 
   @override
   Future<void> send(Map<String, dynamic> command) async {
     final type = command['type'];
-    if (type == 'configure') {
-      if (_fallbackConnected) await _fallback.send(command);
-      return;
-    }
+    if (type == 'configure') return; // Already sent with RTC bootstrap.
     if (type == 'text') {
       await _sendRtcText(command['text'] as String? ?? '');
       return;
@@ -626,6 +616,7 @@ class RtcVoiceTransport implements VoiceTransport {
     }
     final id = 'rtc-typed-${DateTime.now().microsecondsSinceEpoch}';
     _events.add({'type': 'transcript', 'id': id, 'text': text});
+    _awaitingReply = true;
     try {
       await _bridge.sendControl(
         userId: credentials.botUserId,
@@ -635,6 +626,7 @@ class RtcVoiceTransport implements VoiceTransport {
         ),
       );
     } catch (_) {
+      _awaitingReply = false;
       _events.add({'type': 'error', 'message': '文字消息暂时无法发送，请稍后再试。'});
       _events.add({'type': 'done'});
       rethrow;
@@ -706,6 +698,8 @@ class RtcVoiceTransport implements VoiceTransport {
       _events.add({'type': 'no_speech'});
       return;
     }
+    _manualTurnOpen = false;
+    _awaitingReply = true;
     try {
       _events.add({
         'type': 'transcript',
@@ -733,6 +727,7 @@ class RtcVoiceTransport implements VoiceTransport {
   @override
   Future<void> cancelPendingTurn() async {
     _turnGeneration++;
+    _awaitingReply = false;
     await _bridge.stopExternalPublishing();
     await _interruptPrematureReply();
     _manualTurnOpen = false;
@@ -743,25 +738,27 @@ class RtcVoiceTransport implements VoiceTransport {
     await _restoreRemoteAudio();
   }
 
-  Future<void> _translateReply(String id, String raw) async {
+  Future<void> _translateReply(String id, String raw, {bool reportError = true}) async {
     final text = raw.trim();
     if (id.isEmpty || text.isEmpty) return;
-    try {
-      final result = await _post(
-        'translate',
-        {'text': text},
-        timeout: const Duration(seconds: 12),
-      );
-      final translation = result['translation'];
-      if (!_closed && translation is String && translation.trim().isNotEmpty) {
-        _events.add({
-          'type': 'reply_translation',
-          'id': id,
-          'translation': translation.trim(),
-        });
+    final translation = _translations[id] ?? await _translationJobs.putIfAbsent(id, () async {
+      try {
+        final result = await _post('translate', {'text': text}, timeout: const Duration(seconds: 12));
+        final value = result['translation'];
+        if (value is! String || value.trim().isEmpty) return null;
+        if (_translations.length >= 40) _translations.remove(_translations.keys.first);
+        return _translations[id] = value.trim();
+      } catch (_) {
+        return null;
+      } finally {
+        _translationJobs.remove(id);
       }
-    } catch (_) {
-      if (!_closed) _events.add({'type': 'translation_error', 'id': id});
+    });
+    if (_closed) return;
+    if (translation != null) {
+      _events.add({'type': 'reply_translation', 'id': id, 'translation': translation});
+    } else if (reportError) {
+      _events.add({'type': 'translation_error', 'id': id});
     }
   }
 
@@ -805,6 +802,8 @@ class RtcVoiceTransport implements VoiceTransport {
       'text': text,
     });
     _events.add({'type': 'partial', 'text': ''});
+    _manualTurnOpen = false;
+    _awaitingReply = true;
     try {
       await _bridge.sendControl(
         userId: _credentials!.botUserId,
@@ -822,8 +821,11 @@ class RtcVoiceTransport implements VoiceTransport {
   }
 
   String get _draftText {
-    if (_voiceDraft.isNotEmpty) return _voiceDraft.values.join(' ');
-    return _latestVoiceText;
+    if (_voiceDraft.isEmpty) return _latestVoiceText;
+    final completed = _voiceDraft.values.join(' ');
+    final trailing = _latestVoiceText.trim();
+    if (trailing.isEmpty || completed.endsWith(trailing)) return completed;
+    return '$completed $trailing';
   }
 
   Future<void> _awaitFinalVoiceText() async {
@@ -897,19 +899,19 @@ class RtcVoiceTransport implements VoiceTransport {
   }
 
   @override
-  Future<void> play(Uint8List bytes) => _fallback.play(bytes);
+  Future<void> play(Uint8List bytes) => _messageAudio.play(bytes);
 
   @override
   Future<void> stopPlayback() async {
-    await _fallback.stopPlayback();
+    await _messageAudio.stopPlayback();
     if (_rtcActive) await _bridge.setRemoteMuted(true);
   }
 
   @override
   Future<void> setPlaybackMuted(bool muted) async {
     _playbackMuted = muted;
-    await _fallback.setPlaybackMuted(muted);
-    if (_rtcActive) await _bridge.setRemoteMuted(muted || !_sessionActive);
+    await _messageAudio.setPlaybackMuted(muted);
+    if (_rtcActive) await _bridge.setRemoteMuted(muted || !_sessionActive || _manualTurnOpen);
   }
 
   @override
@@ -919,7 +921,7 @@ class RtcVoiceTransport implements VoiceTransport {
     if (_rtcActive) {
       await _bridge.setRemoteMuted(!active || _playbackMuted);
     }
-    if (!active) await _fallback.stopPlayback();
+    if (!active) await _messageAudio.stopPlayback();
   }
 
   @override
@@ -931,7 +933,6 @@ class RtcVoiceTransport implements VoiceTransport {
       await _captureOperations;
     } catch (_) {}
     await _bridgeSub?.cancel();
-    await _fallbackSub?.cancel();
     final sessionId = _credentials?.sessionId;
     // Do not keep the child subscribed to RTC while waiting for a slow
     // StopVoiceChat HTTP round trip. Both sides begin teardown immediately;
@@ -954,7 +955,7 @@ class RtcVoiceTransport implements VoiceTransport {
       })(),
       (() async {
         try {
-          await _fallback.close();
+          await _messageAudio.close();
         } catch (_) {}
       })(),
     ]);

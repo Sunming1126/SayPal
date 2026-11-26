@@ -10,7 +10,7 @@ import '../features/vocabulary/providers/vocabulary_providers.dart';
 import '../features/statistics/providers/statistics_providers.dart';
 import '../features/statistics/models/learning_stats.dart';
 
-/// Debug defaults to the verified SayPal WebSocket service.
+/// Online builds prefer RTC. WebSocket and demo are explicit build options.
 const effectiveChatTransport = AppConfig.chatTransport;
 
 /// 名称为旧版兼容保留；RTC 与 WebSocket 真实语音页均为 true。

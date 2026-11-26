@@ -1,8 +1,16 @@
 # SayPal 线上检查
 
+## 2026-11-26 切回 RTC
+
+线上 RTC 网关已部署至 `/opt/saypal/voice/releases/20261126-rtc-primary`，使用 `seed-tts-2.0` 和 Vivi 2.0。公网鉴权、创建会话、启动、文本指令和停止均通过。火山引擎 Web RTC SDK 加入线上测试房间后，发送文本指令并收到最终 AI 字幕与带声音信号的远端音频。部署前后 LifePages、Nginx 和其他容器的状态一致。回滚镜像为 `saypal-voice:rollback-before-rtc-primary`。
+
+iOS 和 Android 的联网构建默认使用 RTC。显式指定 `websocket` 的旧本机配置仍会覆盖默认值。9 项 Flutter 测试通过，包含实时字幕、松手提交、多句回复、情景进度与翻译。iOS 和 Android 设备录音及扬声器播放待验收。
+
+## 2026-11-25 线上记录
+
 检查日期：2026-11-25。依据本轮真实 HTTP/WebSocket 请求及服务器内直接上游诊断；未启动模拟器、未安装或启动 App、未使用麦克风。登录检查已按用户要求搁置。
 
-## 语音合成修复
+### 语音合成修复
 
 线上 SayPal 已切换至 `/opt/saypal/voice/releases/20261125-tts-v3`。后端使用原有的 `RTC_TTS_APP_ID` 和 `RTC_TTS_ACCESS_TOKEN` 调用豆包语音 V3，资源为 `seed-tts-2.0`，音色为 Vivi 2.0。公网 WebSocket 文字回合收到 3 段对应的 MP3，共 48,135 字节，全部完成。部署前后 LifePages、Nginx 和其他运行中的容器状态一致。回滚镜像为 `saypal-voice:rollback-before-tts-v3`，原发布目录为 `/opt/saypal/voice/releases/20260910T054713Z`。
 
@@ -10,7 +18,7 @@
 
 以下保留切换前的检查记录。
 
-## 默认构建配置
+### 默认构建配置
 
 - iOS Debug 自动注入 `SAYPAL_API_BASE_URL`、`SAYPAL_CHAT_TRANSPORT`、`SAYPAL_CHAT_TOKEN`。Xcode 实际构建设置读取成功，三个键均存在，未输出值。
 - Release/Profile 实际构建设置不包含上述凭证。
@@ -18,7 +26,7 @@
 - `.local/saypal-online.json` 与 `ios/Flutter/SayPal.local.xcconfig` 均为本机私有配置、权限 `600`、已加入忽略规则。后者仅在 Debug 中引用。
 - 本轮验证了 Xcode 配置解析，尚未重新编译或进行设备验收。
 
-## 基础功能
+### 基础功能
 
 | 项目 | 实际结果 |
 | --- | --- |
@@ -34,13 +42,13 @@
 
 页面、档案、生词本、学习记录的原恢复检查记录存在于前序任务。本轮未启动 App 重做这些界面或持久化验收。
 
-## 机器检查
+### 机器检查
 
 - Dart 分析：无 error/warning，16 条既有风格 info；由于默认分析器将 info 计入退出条件，命令退出码为 1。
 - 本轮重新运行了原任务的后端隔离测试：未配置状态、鉴权、翻译、情景生成、自由文字/PCM 输入及全部练习模式通过。使用的是替身上游，不能替代真实 ASR/TTS 验收。
 - 新增 Python 工具语法检查通过。
 - 真实请求脱敏结果位于 `.local/online-check.json`、`.local/asr-check.json`、`.local/translation-check.json`、`.local/build-settings-check.json`。这些文件均未包含凭证值。
 
-## 服务器边界
+### 服务器边界
 
 本轮未修改线上文件、未部署、未重启容器或其他服务。只访问现有 SayPal 接口及在容器内进行小量合成数据探测；RTC 测试任务已调用 stop。语音合成的资源授权问题仍待修复，不能将当前基础功能整体标记为正常。
