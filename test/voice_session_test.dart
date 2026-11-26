@@ -166,6 +166,10 @@ void main() {
     expect(state.displayMessages.single.isProvisional, isFalse);
     expect(state.messages.single.id, '1');
     expect(state.displayMessages.single.displayId, displayId);
+    transport.emit({'type': 'reply_segment', 'id': '2', 'text': 'I like apples too.'});
+    expect(state.canStartTurn, isFalse);
+    transport.emit({'type': 'done'});
+    expect(state.canStartTurn, isTrue);
   });
 
   test('cancelling during recorder startup discards a released turn', () async {

@@ -116,6 +116,26 @@ List<RtcSubtitleItem> decodeRtcSubtitle(Uint8List bytes) {
   }
 }
 
+/// The RTC conversation-state message is separate from a subtitle paragraph.
+int? decodeRtcAnswerFinish(Uint8List bytes) {
+  if (bytes.length < 8) return null;
+  final header = ByteData.sublistView(bytes, 0, 8);
+  if (header.getUint32(0) != 0x636f6e76 ||
+      header.getUint32(4) != bytes.length - 8) {
+    return null;
+  }
+  try {
+    final data = jsonDecode(utf8.decode(Uint8List.sublistView(bytes, 8)));
+    if (data is! Map || data['Stage'] is! Map || data['Stage']['Code'] != 5) {
+      return null;
+    }
+    final round = data['RoundID'];
+    return round is int && round > 0 ? round : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Encodes the documented RTC conversational-AI control envelope used by the
 /// official Volcengine demo: 4-byte type + big-endian length + UTF-8 JSON.
 Uint8List encodeRtcControl({
@@ -210,19 +230,25 @@ class VolcRtcAudioBridge implements RtcAudioBridge {
         _events.add({'type': 'rtc_reconnected'});
       }
     };
-    roomHandler.onRoomBinaryMessageReceived = (_, __, message) {
-      for (final item in decodeRtcSubtitle(message)) {
-        if (!_closed) {
-          _events.add({
-            'type': 'subtitle',
-            'userId': item.userId,
-            'text': item.text,
-            'roundId': item.roundId,
-            'sequence': item.sequence,
-            'definite': item.definite,
-            'paragraph': item.paragraph,
-          });
+    roomHandler.onRoomBinaryMessageReceived = (_, sender, message) {
+      if (_closed) return;
+      if (sender == credentials.botUserId) {
+        final round = decodeRtcAnswerFinish(message);
+        if (round != null) {
+          _events.add({'type': 'answer_finish', 'roundId': round});
+          return;
         }
+      }
+      for (final item in decodeRtcSubtitle(message)) {
+        _events.add({
+          'type': 'subtitle',
+          'userId': item.userId,
+          'text': item.text,
+          'roundId': item.roundId,
+          'sequence': item.sequence,
+          'definite': item.definite,
+          'paragraph': item.paragraph,
+        });
       }
     };
     roomHandler.onUserPublishStreamAudio = (streamId, _, isPublish) {
@@ -508,6 +534,7 @@ class RtcVoiceTransport implements VoiceTransport {
     RtcVoiceSessionApi? sessionApi,
     this.parallelStartup = false,
     this.voiceFinalizeTimeout = const Duration(seconds: 2),
+    this.replyIdleTimeout = const Duration(seconds: 6),
   })  : _bridge = bridge ?? VolcRtcAudioBridge(),
         _messageAudio = WebsocketVoiceTransport(baseUrl),
         _ownsApi = sessionApi == null,
@@ -521,6 +548,7 @@ class RtcVoiceTransport implements VoiceTransport {
   // Reuse its local MP3 player for saved speech. No socket is opened here.
   final VoiceTransport _messageAudio;
   final Duration voiceFinalizeTimeout;
+  final Duration replyIdleTimeout;
   final _events = StreamController<Map<String, dynamic>>.broadcast();
   StreamSubscription<Map<String, dynamic>>? _bridgeSub;
   RtcSessionCredentials? _credentials;
@@ -538,6 +566,9 @@ class RtcVoiceTransport implements VoiceTransport {
   ConversationContext _context = const ConversationContext.freeChat();
   int _completedObjectives = 0;
   bool _awaitingReply = false;
+  int? _replyRound;
+  int _lastFinishedRound = -1;
+  Timer? _replyIdleTimer;
   String _latestVoiceText = '';
   Completer<void>? _voiceTextChanged;
   Completer<void>? _botReady;
@@ -662,6 +693,10 @@ class RtcVoiceTransport implements VoiceTransport {
       _events.add({'type': 'disconnected'});
       return;
     }
+    if (event['type'] == 'answer_finish') {
+      if (_isCurrentReply(event['roundId'] as int? ?? -1)) _finishReply();
+      return;
+    }
     if (event['type'] != 'subtitle') return;
     final userId = event['userId'] as String? ?? '';
     final text = event['text'] as String? ?? '';
@@ -681,7 +716,7 @@ class RtcVoiceTransport implements VoiceTransport {
       if (changed != null && !changed.isCompleted) changed.complete();
       return;
     }
-    if (userId != _credentials?.botUserId || _manualTurnOpen || !_awaitingReply) {
+    if (userId != _credentials?.botUserId || !_isCurrentReply(round)) {
       return;
     }
     final clock = _firstSubtitleClock;
@@ -689,8 +724,12 @@ class RtcVoiceTransport implements VoiceTransport {
       _sawBotSubtitle = true;
       debugPrint('SayPal RTC reply: first_subtitle +${clock.elapsedMilliseconds}ms');
     }
-    if (!definite) return;
-    if (text.isNotEmpty && _committed.add(key)) {
+    if (text.isNotEmpty && (definite || _replyIdleTimer != null)) {
+      // Recover a visible reply if the room never delivers answerFinish.
+      _replyIdleTimer?.cancel();
+      _replyIdleTimer = Timer(replyIdleTimeout, _finishReply);
+    }
+    if (definite && text.isNotEmpty && _committed.add(key)) {
       if (clock != null) {
         debugPrint('SayPal RTC reply: first_definite +${clock.elapsedMilliseconds}ms');
         _firstSubtitleClock = null;
@@ -706,8 +745,30 @@ class RtcVoiceTransport implements VoiceTransport {
         unawaited(_translateReply(id, text, reportError: false));
       }
     }
-    if (!paragraph) return;
+  }
+
+  bool _isCurrentReply(int round) {
+    if (_manualTurnOpen || !_awaitingReply) return false;
+    if (round <= 0) return true;
+    if (round <= _lastFinishedRound || (_replyRound != null && _replyRound != round)) {
+      return false;
+    }
+    _replyRound = round;
+    return true;
+  }
+
+  void _clearReply() {
+    _replyIdleTimer?.cancel();
+    _replyIdleTimer = null;
     _awaitingReply = false;
+    _lastFinishedRound = _replyRound ?? _lastFinishedRound;
+    _replyRound = null;
+    _firstSubtitleClock = null;
+  }
+
+  void _finishReply() {
+    if (!_awaitingReply || _closed) return;
+    _clearReply();
     if ((_context.kind == ConversationKind.roleplay ||
             _context.kind == ConversationKind.customRoleplay) &&
         _completedObjectives < _context.objectives.length) {
@@ -756,7 +817,7 @@ class RtcVoiceTransport implements VoiceTransport {
         ),
       );
     } catch (_) {
-      _awaitingReply = false;
+      _clearReply();
       _events.add({'type': 'error', 'message': '文字消息暂时无法发送，请稍后再试。'});
       _events.add({'type': 'done'});
       rethrow;
@@ -863,8 +924,7 @@ class RtcVoiceTransport implements VoiceTransport {
   @override
   Future<void> cancelPendingTurn() async {
     _turnGeneration++;
-    _firstSubtitleClock = null;
-    _awaitingReply = false;
+    _clearReply();
     await _bridge.stopExternalPublishing();
     await _interruptPrematureReply();
     _manualTurnOpen = false;
@@ -1065,6 +1125,7 @@ class RtcVoiceTransport implements VoiceTransport {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    _clearReply();
     _recordingLimit?.cancel();
     final botReady = _botReady;
     if (botReady != null && !botReady.isCompleted) botReady.complete();

@@ -9,6 +9,23 @@ import 'package:saypal/features/realtime/voice/conversation_context.dart';
 import 'package:saypal/features/realtime/voice/rtc_voice_transport.dart';
 
 void main() {
+  test('decodes only RTC answerFinish with a valid round and envelope', () {
+    Uint8List event(int code) {
+      final json = utf8.encode(jsonEncode({
+        'Stage': {'Code': code},
+        'RoundID': 7,
+      }));
+      final length = ByteData(4)..setUint32(0, json.length);
+      return Uint8List.fromList([
+        ...ascii.encode('conv'), ...length.buffer.asUint8List(), ...json,
+      ]);
+    }
+
+    expect(decodeRtcAnswerFinish(event(5)), 7);
+    expect(decodeRtcAnswerFinish(event(4)), isNull);
+    expect(decodeRtcAnswerFinish(event(5).sublist(0, 12)), isNull);
+  });
+
   test(
     'RTC consumes a prefetched token once and starts while joining',
     () async {
@@ -67,7 +84,7 @@ void main() {
   );
 
   test(
-    'RTC streams subtitles before submit and completes on the last AI subtitle',
+    'RTC streams subtitles and completes on answerFinish or subtitle inactivity',
     () async {
       final bridge = _Bridge();
       final requests = <String>[];
@@ -107,6 +124,7 @@ void main() {
         'https://example.test/saypal/voice',
         bridge: bridge,
         client: client,
+        replyIdleTimeout: const Duration(milliseconds: 150),
       );
       final events = <Map<String, dynamic>>[];
       final subscription = transport.events.listen(events.add);
@@ -144,12 +162,15 @@ void main() {
       bridge.subtitle('teacher', 'Nice to meet you.', 2, false);
       await Future<void>.delayed(Duration.zero);
       expect(events.where((e) => e['type'] == 'done'), isEmpty);
-      bridge.subtitle('teacher', 'Do you live nearby?', 3, true);
+      bridge.subtitle('teacher', 'Do you live nearby?', 3, false);
       await Future<void>.delayed(Duration.zero);
       expect(
         events.where((e) => e['type'] == 'reply_segment').map((e) => e['text']),
         ['Nice to meet you.', 'Do you live nearby?'],
       );
+      expect(events.where((e) => e['type'] == 'done'), isEmpty);
+      bridge.finishRound(1);
+      await Future<void>.delayed(Duration.zero);
       expect(events.where((e) => e['type'] == 'done'), hasLength(1));
       expect(
         events.singleWhere(
@@ -161,6 +182,17 @@ void main() {
         events.where((e) => e['type'] == 'reply_translation'),
         hasLength(2),
       );
+
+      await transport.send({'type': 'text', 'text': 'Yes, I do.'});
+      bridge.finishRound(1);
+      bridge.subtitle('teacher', 'Nice neighborhood!', 1, false, round: 2);
+      await Future<void>.delayed(Duration.zero);
+      expect(events.where((e) => e['type'] == 'done'), hasLength(1));
+      final fallback = transport.events.firstWhere((e) => e['type'] == 'done');
+      await fallback.timeout(const Duration(seconds: 2));
+      bridge.finishRound(2);
+      await Future<void>.delayed(Duration.zero);
+      expect(events.where((e) => e['type'] == 'done'), hasLength(2));
       await transport.close();
       expect(requests.last, endsWith('/rtc/session/session/stop'));
     },
@@ -179,17 +211,19 @@ class _Bridge implements RtcAudioBridge {
   @override
   Stream<Map<String, dynamic>> get events => output.stream;
 
-  void subtitle(String user, String text, int sequence, bool paragraph) {
+  void subtitle(String user, String text, int sequence, bool paragraph, {int round = 1}) {
     output.add({
       'type': 'subtitle',
       'userId': user,
       'text': text,
-      'roundId': 1,
+      'roundId': round,
       'sequence': sequence,
       'definite': true,
       'paragraph': paragraph,
     });
   }
+
+  void finishRound(int round) => output.add({'type': 'answer_finish', 'roundId': round});
 
   @override
   Future<void> join(RtcSessionCredentials credentials) async {
