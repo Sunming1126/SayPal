@@ -46,6 +46,9 @@ class _MainShellState extends ConsumerState<MainShell> {
           unawaited(controller.activate(keepConnected: rtcChatEnabled));
         } else {
           unawaited(controller.deactivate());
+          if (rtcChatEnabled) {
+            ref.read(rtcVoiceSessionApiProvider).prefetchFreeChat();
+          }
         }
       });
     }

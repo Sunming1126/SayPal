@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:record/record.dart';
 import 'package:volc_engine_rtc/volc_engine_rtc.dart';
 import 'package:volc_engine_rtc/codegen/pack/keytype.dart' as rtc_types;
@@ -22,6 +23,7 @@ class RtcSessionCredentials {
     required this.userId,
     required this.botUserId,
     required this.token,
+    this.expiresAt,
   });
 
   final String sessionId;
@@ -30,6 +32,7 @@ class RtcSessionCredentials {
   final String userId;
   final String botUserId;
   final String token;
+  final int? expiresAt;
 
   factory RtcSessionCredentials.fromJson(Map<String, dynamic> json) {
     String field(String name) =>
@@ -41,6 +44,7 @@ class RtcSessionCredentials {
       userId: field('userId'),
       botUserId: field('botUserId'),
       token: field('token'),
+      expiresAt: json['expiresAt'] as int?,
     );
     if ([
       result.sessionId,
@@ -374,115 +378,59 @@ class VolcRtcAudioBridge implements RtcAudioBridge {
   }
 }
 
-/// RTC handles streaming microphone audio, AI subtitles and remote playback.
-/// The HTTP backend handles session credentials and subtitle translation.
-class RtcVoiceTransport implements VoiceTransport {
-  RtcVoiceTransport(
-    this.baseUrl, {
-    this.token = '',
-    RtcAudioBridge? bridge,
-    http.Client? client,
-    this.voiceFinalizeTimeout = const Duration(seconds: 2),
-  })  : _bridge = bridge ?? VolcRtcAudioBridge(),
-        _messageAudio = WebsocketVoiceTransport(baseUrl),
-        _client = client ?? http.Client();
+/// Owns the HTTP connections and at most one unused free-chat reservation.
+class RtcVoiceSessionApi {
+  RtcVoiceSessionApi(this.baseUrl, {this.token = '', http.Client? client})
+    : _client =
+          client ??
+          IOClient(HttpClient()..idleTimeout = const Duration(minutes: 1));
 
   final String baseUrl;
   final String token;
-  final RtcAudioBridge _bridge;
-  // Reuse its local MP3 player for saved speech. No socket is opened here.
-  final VoiceTransport _messageAudio;
   final http.Client _client;
-  final Duration voiceFinalizeTimeout;
-  final _events = StreamController<Map<String, dynamic>>.broadcast();
-  StreamSubscription<Map<String, dynamic>>? _bridgeSub;
-  RtcSessionCredentials? _credentials;
-  bool _rtcActive = false;
+  Future<RtcSessionCredentials?>? _prefetched;
   bool _closed = false;
-  bool _sessionActive = true;
-  bool _playbackMuted = false;
-  bool _manualTurnOpen = false;
-  Future<void> _captureOperations = Future<void>.value();
-  Timer? _recordingLimit;
-  final _committed = <String>{};
-  final _translationJobs = <String, Future<String?>>{};
-  final _translations = <String, String>{};
-  final Map<String, String> _voiceDraft = <String, String>{};
-  ConversationContext _context = const ConversationContext.freeChat();
-  int _completedObjectives = 0;
-  bool _awaitingReply = false;
-  String _latestVoiceText = '';
-  Completer<void>? _voiceTextChanged;
-  Completer<void>? _botReady;
-  Future<void>? _opening;
-  Stopwatch? _firstSubtitleClock;
-  bool _sawBotSubtitle = false;
-  int _turnGeneration = 0;
-  String _pendingBufferedText = '';
 
-  /// Internal diagnostics: which RTC stage failed last
-  /// (`bootstrap`, `join`, `rtc-start`). Never surfaced to children.
-  String? lastFailureStage;
-
-  @override
-  Stream<Map<String, dynamic>> get events => _events.stream;
-
-  @override
-  Future<void> connect({required ConversationContext context}) async {
-    _context = context;
-    _bridgeSub = _bridge.events.listen(_onBridgeEvent);
-    _botReady = Completer<void>();
-    final opening = _opening = _open(context);
-    try {
-      await opening;
-    } catch (_) {
-      if (!_closed) await close();
-      rethrow;
-    } finally {
-      _opening = null;
-    }
+  void prefetchFreeChat() {
+    if (_closed || _prefetched != null) return;
+    final pending = _prefetched =
+        _bootstrap(
+          const ConversationContext.freeChat(),
+        ).then<RtcSessionCredentials?>(
+          (value) => value,
+          onError: (Object _) => null,
+        );
+    unawaited(
+      pending.then((credentials) {
+        if (credentials == null && identical(_prefetched, pending)) {
+          _prefetched = null;
+        }
+      }),
+    );
   }
 
-  Future<void> _open(ConversationContext context) async {
-    var stage = 'bootstrap';
-    try {
-      _events.add({'type': 'connection_stage', 'stage': stage});
-      _credentials = await _bootstrap(context);
-      if (_closed) return;
-      stage = 'join';
-      _events.add({'type': 'connection_stage', 'stage': stage});
-      await _bridge.join(_credentials!);
-      if (_closed) return;
-      stage = 'rtc-start';
-      _events.add({'type': 'connection_stage', 'stage': stage});
-      await _post(
-        'rtc/session/${_credentials!.sessionId}/start',
-        const {},
-        timeout: const Duration(seconds: 10),
-      );
-      if (_closed) return;
-      _rtcActive = true;
-      stage = 'bot-ready';
-      _events.add({'type': 'connection_stage', 'stage': stage});
-      await _botReady!.future.timeout(const Duration(seconds: 10));
-      if (_closed) return;
-      _events.add({'type': 'ready'});
-      if (context.needsConfiguration) {
-        _events.add({'type': 'configured', 'label': '练习已准备好'});
+  Future<RtcSessionCredentials> take(ConversationContext context) async {
+    if (context.kind == ConversationKind.freeChat) {
+      final pending = _prefetched;
+      _prefetched = null;
+      final credentials = await pending;
+      final expiresAt = credentials?.expiresAt;
+      if (credentials != null &&
+          expiresAt != null &&
+          expiresAt > DateTime.now().millisecondsSinceEpoch ~/ 1000 + 60) {
+        if (kDebugMode) {
+          debugPrint('SayPal RTC startup: using prefetched token');
+        }
+        return credentials;
       }
-    } catch (error) {
-      lastFailureStage = stage;
-      debugPrint('SayPal RTC failed at $stage (${error.runtimeType})');
-      _rtcActive = false;
-      if (error is VoiceFailure) rethrow;
-      if (error is SocketException) {
-        throw const VoiceFailure('无法连接语音服务器，请检查网络后重试。');
-      }
-      if (error is TimeoutException) {
-        throw const VoiceFailure('语音连接超时，请重试。');
-      }
-      throw const VoiceFailure('小蓝暂时没准备好，请稍后再试一次。');
     }
+    return _bootstrap(context);
+  }
+
+  void close() {
+    _closed = true;
+    _prefetched = null;
+    _client.close();
   }
 
   Future<RtcSessionCredentials> _bootstrap(ConversationContext context) async {
@@ -492,14 +440,13 @@ class RtcVoiceTransport implements VoiceTransport {
       // know by ID. Use its existing validation for bounded custom scenes.
       payload['kind'] = ConversationKind.customRoleplay.name;
     }
-    final response = await _post(
-        'rtc/session/bootstrap',
-        {'context': payload},
-        timeout: const Duration(seconds: 8));
+    final response = await post('rtc/session/bootstrap', {
+      'context': payload,
+    }, timeout: const Duration(seconds: 8));
     return RtcSessionCredentials.fromJson(response);
   }
 
-  Future<Map<String, dynamic>> _post(
+  Future<Map<String, dynamic>> post(
     String endpoint,
     Map<String, dynamic> body, {
     Duration timeout = const Duration(seconds: 22),
@@ -536,6 +483,9 @@ class RtcVoiceTransport implements VoiceTransport {
       if (status == 503 && endpoint == 'rtc/session/bootstrap') {
         throw const VoiceFailure('语音服务尚未就绪，请稍后重试。');
       }
+      if (status == 404 && endpoint.endsWith('/start')) {
+        throw const VoiceFailure('语音房间已过期，正在准备新连接。');
+      }
       throw VoiceFailure(
         '小蓝暂时没准备好，请稍后再试一次。',
         retryable: status >= 500 || status == 408 || status == 429,
@@ -545,12 +495,158 @@ class RtcVoiceTransport implements VoiceTransport {
     if (decoded is! Map<String, dynamic>) throw const FormatException();
     return decoded;
   }
+}
+
+/// RTC handles streaming microphone audio, AI subtitles and remote playback.
+/// The HTTP backend handles session credentials and subtitle translation.
+class RtcVoiceTransport implements VoiceTransport {
+  RtcVoiceTransport(
+    this.baseUrl, {
+    String token = '',
+    RtcAudioBridge? bridge,
+    http.Client? client,
+    RtcVoiceSessionApi? sessionApi,
+    this.parallelStartup = false,
+    this.voiceFinalizeTimeout = const Duration(seconds: 2),
+  })  : _bridge = bridge ?? VolcRtcAudioBridge(),
+        _messageAudio = WebsocketVoiceTransport(baseUrl),
+        _ownsApi = sessionApi == null,
+        _api = sessionApi ?? RtcVoiceSessionApi(baseUrl, token: token, client: client);
+
+  final String baseUrl;
+  final bool _ownsApi;
+  final RtcVoiceSessionApi _api;
+  final bool parallelStartup;
+  final RtcAudioBridge _bridge;
+  // Reuse its local MP3 player for saved speech. No socket is opened here.
+  final VoiceTransport _messageAudio;
+  final Duration voiceFinalizeTimeout;
+  final _events = StreamController<Map<String, dynamic>>.broadcast();
+  StreamSubscription<Map<String, dynamic>>? _bridgeSub;
+  RtcSessionCredentials? _credentials;
+  bool _rtcActive = false;
+  bool _closed = false;
+  bool _sessionActive = true;
+  bool _playbackMuted = false;
+  bool _manualTurnOpen = false;
+  Future<void> _captureOperations = Future<void>.value();
+  Timer? _recordingLimit;
+  final _committed = <String>{};
+  final _translationJobs = <String, Future<String?>>{};
+  final _translations = <String, String>{};
+  final Map<String, String> _voiceDraft = <String, String>{};
+  ConversationContext _context = const ConversationContext.freeChat();
+  int _completedObjectives = 0;
+  bool _awaitingReply = false;
+  String _latestVoiceText = '';
+  Completer<void>? _voiceTextChanged;
+  Completer<void>? _botReady;
+  Future<void>? _opening;
+  Stopwatch? _startupClock;
+  Stopwatch? _firstSubtitleClock;
+  bool _sawBotSubtitle = false;
+  int _turnGeneration = 0;
+  String _pendingBufferedText = '';
+
+  /// Internal diagnostics: which RTC stage failed last
+  /// (`bootstrap`, `join`, `rtc-start`). Never surfaced to children.
+  String? lastFailureStage;
+
+  @override
+  Stream<Map<String, dynamic>> get events => _events.stream;
+
+  @override
+  Future<void> connect({required ConversationContext context}) async {
+    _context = context;
+    _bridgeSub = _bridge.events.listen(_onBridgeEvent);
+    _botReady = Completer<void>();
+    final opening = _opening = _open(context);
+    try {
+      await opening;
+    } catch (_) {
+      if (!_closed) await close();
+      rethrow;
+    } finally {
+      _opening = null;
+    }
+  }
+
+  Future<void> _open(ConversationContext context) async {
+    var stage = 'bootstrap';
+    _startupClock = kDebugMode ? (Stopwatch()..start()) : null;
+    try {
+      _events.add({'type': 'connection_stage', 'stage': stage});
+      final credentials = _credentials = await _api.take(context);
+      _logStartup('bootstrap_ready');
+      if (_closed) return;
+      stage = 'join';
+      _events.add({'type': 'connection_stage', 'stage': stage});
+
+      Future<void> join() async {
+        await _bridge.join(credentials);
+        _logStartup('client_joined');
+      }
+
+      Future<void> start() async {
+        await _api.post(
+          'rtc/session/${credentials.sessionId}/start',
+          const {},
+          timeout: const Duration(seconds: 10),
+        );
+        _logStartup('start_returned');
+      }
+
+      if (parallelStartup) {
+        stage = 'join-and-start';
+        await Future.wait([join(), start()]);
+      } else {
+        await join();
+        if (_closed) return;
+        stage = 'rtc-start';
+        _events.add({'type': 'connection_stage', 'stage': stage});
+        await start();
+      }
+      if (_closed) return;
+      stage = 'bot-ready';
+      _events.add({'type': 'connection_stage', 'stage': stage});
+      await _botReady!.future.timeout(const Duration(seconds: 10));
+      if (_closed) return;
+      _rtcActive = true;
+      _logStartup('ready');
+      _events.add({'type': 'ready'});
+      if (context.needsConfiguration) {
+        _events.add({'type': 'configured', 'label': '练习已准备好'});
+      }
+    } catch (error) {
+      lastFailureStage = stage;
+      debugPrint('SayPal RTC failed at $stage (${error.runtimeType})');
+      _rtcActive = false;
+      if (error is VoiceFailure) rethrow;
+      if (error is SocketException) {
+        throw const VoiceFailure('无法连接语音服务器，请检查网络后重试。');
+      }
+      if (error is TimeoutException) {
+        throw const VoiceFailure('语音连接超时，请重试。');
+      }
+      throw const VoiceFailure('小蓝暂时没准备好，请稍后再试一次。');
+    } finally {
+      _startupClock = null;
+    }
+  }
+
+  void _logStartup(String stage) {
+    final clock = _startupClock;
+    if (clock != null) debugPrint('SayPal RTC startup: $stage +${clock.elapsedMilliseconds}ms');
+  }
 
   void _onBridgeEvent(Map<String, dynamic> event) {
     if (_closed) return;
     if (event['type'] == 'bot_ready') {
       final pending = _botReady;
-      if (pending != null && !pending.isCompleted) pending.complete();
+      if (pending != null && !pending.isCompleted) {
+        _logStartup('bot_joined');
+        pending.complete();
+      }
       return;
     }
     if (!_rtcActive) return;
@@ -784,7 +880,7 @@ class RtcVoiceTransport implements VoiceTransport {
     if (id.isEmpty || text.isEmpty) return;
     final translation = _translations[id] ?? await _translationJobs.putIfAbsent(id, () async {
       try {
-        final result = await _post('translate', {'text': text}, timeout: const Duration(seconds: 12));
+        final result = await _api.post('translate', {'text': text}, timeout: const Duration(seconds: 12));
         final value = result['translation'];
         if (value is! String || value.trim().isEmpty) return null;
         if (_translations.length >= 40) _translations.remove(_translations.keys.first);
@@ -987,7 +1083,7 @@ class RtcVoiceTransport implements VoiceTransport {
       if (sessionId != null)
         (() async {
           try {
-            await _post(
+            await _api.post(
               'rtc/session/$sessionId/stop',
               const {},
               timeout: const Duration(seconds: 8),
@@ -1005,7 +1101,7 @@ class RtcVoiceTransport implements VoiceTransport {
         } catch (_) {}
       })(),
     ]);
-    _client.close();
+    if (_ownsApi) _api.close();
     await _events.close();
   }
 }

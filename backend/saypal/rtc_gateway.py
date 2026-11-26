@@ -5,16 +5,18 @@ Flutter client receives only a short-lived room token and opaque session IDs.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import struct
 import time
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -25,6 +27,7 @@ from .practice_catalog import prompt_for
 
 
 _TOKEN_VERSION = "001"
+_logger = logging.getLogger("uvicorn.error")
 _PRIV_PUBLISH_STREAM = 0
 _PRIV_PUBLISH_AUDIO = 1
 _PRIV_PUBLISH_VIDEO = 2
@@ -137,7 +140,10 @@ class RtcSession:
     user_id: str
     bot_user_id: str
     context: dict[str, Any] | None
+    expires_at: int
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     task_id: str | None = None
+    attempted_task_id: str | None = None
 
 
 class RtcGateway:
@@ -145,6 +151,12 @@ class RtcGateway:
 
     def __init__(self) -> None:
         self._sessions: dict[str, RtcSession] = {}
+        self._client: httpx.AsyncClient | None = None
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     @staticmethod
     def missing() -> list[str]:
@@ -169,7 +181,12 @@ class RtcGateway:
         room_id = f"saypal_{uuid4().hex[:20]}"
         user_id = f"child_{uuid4().hex[:16]}"
         bot_user_id = f"xiaolan_{uuid4().hex[:16]}"
-        expires_at = int(time.time()) + 30 * 60
+        now = int(time.time())
+        self._sessions = {
+            key: session for key, session in self._sessions.items()
+            if session.attempted_task_id or session.expires_at > now
+        }
+        expires_at = now + 30 * 60
         token = issue_rtc_token(
             app_id=os.environ["VOLC_RTC_APP_ID"].strip(),
             app_key=os.environ["VOLC_RTC_APP_KEY"].strip(),
@@ -183,6 +200,7 @@ class RtcGateway:
             user_id=user_id,
             bot_user_id=bot_user_id,
             context=context,
+            expires_at=expires_at,
         )
         return {
             "sessionId": session_id,
@@ -198,9 +216,17 @@ class RtcGateway:
         session = self._sessions.get(session_id)
         if session is None:
             raise KeyError("unknown_session")
-        if session.task_id:
+        async with session.lock:
+            if self._sessions.get(session_id) is not session:
+                raise KeyError("unknown_session")
+            if not session.task_id:
+                if session.expires_at <= int(time.time()):
+                    raise KeyError("expired_session")
+                session.task_id = await self._start(session)
             return {"taskId": session.task_id}
-        task_id = uuid4().hex
+
+    async def _start(self, session: RtcSession) -> str:
+        task_id = session.attempted_task_id = session.attempted_task_id or uuid4().hex
         context_prompt = prompt_for(session.context) if session.context else ""
         system_prompt = (
             "You are Xiaolan, a kind English speaking tutor for Chinese primary "
@@ -280,21 +306,24 @@ class RtcGateway:
             },
         }
         await self._call("StartVoiceChat", body)
-        session.task_id = task_id
-        return {"taskId": task_id}
+        return task_id
 
     async def stop(self, session_id: str) -> None:
-        session = self._sessions.pop(session_id, None)
-        if session is None or not session.task_id:
+        session = self._sessions.get(session_id)
+        if session is None:
             return
-        await self._call(
-            "StopVoiceChat",
-            {
-                "AppId": os.environ["VOLC_RTC_APP_ID"].strip(),
-                "RoomId": session.room_id,
-                "TaskId": session.task_id,
-            },
-        )
+        async with session.lock:
+            if self._sessions.pop(session_id, None) is not session:
+                return
+            if session.attempted_task_id:
+                await self._call(
+                    "StopVoiceChat",
+                    {
+                        "AppId": os.environ["VOLC_RTC_APP_ID"].strip(),
+                        "RoomId": session.room_id,
+                        "TaskId": session.attempted_task_id,
+                    },
+                )
 
     async def _call(self, action: str, body: dict[str, Any]) -> dict[str, Any]:
         # The reference chain calls StartVoiceChat/StopVoiceChat against the
@@ -305,10 +334,20 @@ class RtcGateway:
         )
         host = os.getenv("VOLC_RTC_HOST", "rtc.volcengineapi.com").strip()
         url = f"https://{host}/?Action={action}&Version={version}"
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.post(
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                timeout=20, limits=httpx.Limits(keepalive_expiry=60),
+            )
+        started_at = time.perf_counter()
+        try:
+            response = await self._client.post(
                 url, headers=_v4_headers(action=action, version=version, body=payload), content=payload
             )
+        except httpx.HTTPError as error:
+            raise RuntimeError("rtc_upstream_unreachable") from error
+        finally:
+            if action == "StartVoiceChat":
+                _logger.info("SayPal RTC StartVoiceChat HTTP %.0fms", (time.perf_counter() - started_at) * 1000)
         result = response.json() if response.content else {}
         error = (
             result.get("ResponseMetadata", {}).get("Error")

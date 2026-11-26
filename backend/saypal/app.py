@@ -35,9 +35,17 @@ async def _translate_text(upstream, text):
 
 
 def create_app(provider=None):
-    api = FastAPI(docs_url=None, redoc_url=None)
-    upstream = provider or Providers()
     rtc = RtcGateway()
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_):
+        try:
+            yield
+        finally:
+            await rtc.close()
+
+    api = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
+    upstream = provider or Providers()
     # Bound local concurrency to avoid accidental unbounded provider billing.
     slots = asyncio.Semaphore(2)
 

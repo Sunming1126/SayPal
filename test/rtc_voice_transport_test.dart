@@ -10,6 +10,63 @@ import 'package:saypal/features/realtime/voice/rtc_voice_transport.dart';
 
 void main() {
   test(
+    'RTC consumes a prefetched token once and starts while joining',
+    () async {
+      final joinGate = Completer<void>();
+      final starting = Completer<void>();
+      final bridge = _Bridge(joinGate: joinGate.future);
+      var bootstraps = 0;
+      final api = RtcVoiceSessionApi(
+        'https://example.test',
+        client: MockClient((request) async {
+          if (request.url.path.endsWith('/bootstrap')) {
+            return http.Response(
+              jsonEncode({
+                'sessionId': 'session-${++bootstraps}',
+                'appId': 'app',
+                'roomId': 'room',
+                'userId': 'learner',
+                'botUserId': 'teacher',
+                'token': 'room-token',
+                'expiresAt':
+                    DateTime.now().millisecondsSinceEpoch ~/ 1000 + 900,
+              }),
+              200,
+            );
+          }
+          if (request.url.path.endsWith('/start')) {
+            expect(request.url.path, contains('/session-1/'));
+            expect(bridge.joined, isFalse);
+            bridge.output.add({'type': 'bot_ready'});
+            starting.complete();
+          }
+          return http.Response('{}', 200);
+        }),
+      );
+      addTearDown(api.close);
+      final transport = RtcVoiceTransport(
+        'https://example.test',
+        bridge: bridge,
+        sessionApi: api,
+        parallelStartup: true,
+      );
+      api.prefetchFreeChat();
+      api.prefetchFreeChat();
+      final opening = transport.connect(
+        context: const ConversationContext.freeChat(),
+      );
+      await starting.future.timeout(const Duration(seconds: 2));
+      joinGate.complete();
+      await opening;
+      expect(bootstraps, 1);
+      await transport.close();
+
+      final next = await api.take(const ConversationContext.freeChat());
+      expect(next.sessionId, 'session-2');
+    },
+  );
+
+  test(
     'RTC streams subtitles before submit and completes on the last AI subtitle',
     () async {
       final bridge = _Bridge();
@@ -111,6 +168,9 @@ void main() {
 }
 
 class _Bridge implements RtcAudioBridge {
+  _Bridge({this.joinGate});
+
+  final Future<void>? joinGate;
   final output = StreamController<Map<String, dynamic>>.broadcast();
   final firstFrame = Completer<void>();
   final controls = <Map>[];
@@ -132,7 +192,11 @@ class _Bridge implements RtcAudioBridge {
   }
 
   @override
-  Future<void> join(RtcSessionCredentials credentials) async => joined = true;
+  Future<void> join(RtcSessionCredentials credentials) async {
+    await joinGate;
+    joined = true;
+  }
+
   @override
   Future<void> setRemoteMuted(bool muted) async {}
   @override

@@ -27,15 +27,27 @@ final _voiceBaseUrl = AppConfig.instance.apiBaseUrl;
 /// `flutter run`. Release builds still require explicit production auth.
 final voiceChatTokenProvider = Provider<String>((ref) => AppConfig.chatToken);
 
+final rtcVoiceSessionApiProvider = Provider<RtcVoiceSessionApi>((ref) {
+  final api = RtcVoiceSessionApi(
+    _voiceBaseUrl,
+    token: ref.watch(voiceChatTokenProvider),
+  );
+  ref.onDispose(api.close);
+  return api;
+});
+
 final voiceTransportOverride =
     voiceTransportFactoryProvider.overrideWith((ref) {
+  if (rtcChatEnabled) {
+    final api = ref.watch(rtcVoiceSessionApiProvider);
+    return () => RtcVoiceTransport(
+      _voiceBaseUrl,
+      sessionApi: api,
+      parallelStartup: true,
+    );
+  }
   final token = ref.watch(voiceChatTokenProvider);
-  return () {
-    if (rtcChatEnabled) {
-      return RtcVoiceTransport(_voiceBaseUrl, token: token);
-    }
-    return WebsocketVoiceTransport(_voiceBaseUrl, token: token);
-  };
+  return () => WebsocketVoiceTransport(_voiceBaseUrl, token: token);
 });
 
 final voiceFeatureOverrides = [
