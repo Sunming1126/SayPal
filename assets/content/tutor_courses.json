@@ -1,0 +1,26 @@
+{
+  "courses": [
+    {
+      "id":"my-family","title":"我的家庭","subtitle":"认识家人，介绍温暖的家","videoUrl":"","vttUrl":"","icon":"family_restroom",
+      "vocabulary":["family","father","mother","doctor","teacher","student","dinner","weekend"],
+      "introLines":[
+        {"en":"There are three people in my family.","zh":"我家有三口人。"},{"en":"My father is a doctor. He is kind.","zh":"我的爸爸是一名医生，他很善良。"},{"en":"My mother is a teacher. She is patient.","zh":"我的妈妈是一名老师，她很有耐心。"},{"en":"I am a student. I love my family.","zh":"我是一名学生，我爱我的家人。"},{"en":"We often have dinner together.","zh":"我们经常一起吃晚饭。"},{"en":"We go for walks on weekends.","zh":"我们周末去散步。"},{"en":"My family is warm and happy.","zh":"我的家温暖又幸福。"}],
+      "translationDrill":[{"zh":"我家有三口人。","en":"There are three people in my family."},{"zh":"我的爸爸是一名医生，他很善良。","en":"My father is a doctor. He is kind."},{"zh":"我的妈妈是一名老师，她很有耐心。","en":"My mother is a teacher. She is patient."},{"zh":"我是一名学生，我爱我的家人。","en":"I am a student. I love my family."},{"zh":"我们经常一起吃晚饭。","en":"We often have dinner together."},{"zh":"我们周末去散步。","en":"We go for walks on weekends."},{"zh":"我的家温暖又幸福。","en":"My family is warm and happy。"}],
+      "qaPairs":[{"q":"How many people are there in your family?","a":"There are three people in my family."},{"q":"What does your father do?","a":"He is a doctor."},{"q":"Is your mother patient?","a":"Yes, she is."},{"q":"What do you often do with your family?","a":"Have dinner together."},{"q":"Do you love your family?","a":"Yes, I do."}]
+    },
+    {
+      "id":"zoo-trip","title":"动物园之旅","subtitle":"认识动物，说说动物园里的发现","videoUrl":"","vttUrl":"","icon":"pets",
+      "vocabulary":["zoo","bird","bear","tiger","monkey","panda","bamboo"],
+      "introLines":[{"en":"We went to the zoo.","zh":"我们去了动物园。"},{"en":"The birds were there.","zh":"鸟儿在那里。"},{"en":"The bears were there.","zh":"熊在那里。"},{"en":"The tiger was there.","zh":"老虎在那里。"},{"en":"The monkey was there.","zh":"猴子在那里。"},{"en":"Where were the pandas?","zh":"熊猫在哪里？"},{"en":"They were eating bamboo.","zh":"它们正在吃竹子。"}],
+      "translationDrill":[{"zh":"我们去了动物园。","en":"We went to the zoo."},{"zh":"鸟儿在那里。","en":"The birds were there."},{"zh":"熊在那里。","en":"The bears were there."},{"zh":"老虎在那里。","en":"The tiger was there."},{"zh":"猴子在那里。","en":"The monkey was there."},{"zh":"熊猫在哪里？","en":"Where were the pandas?"},{"zh":"它们正在吃竹子。","en":"They were eating bamboo."}],
+      "qaPairs":[{"q":"Where did they go?","a":"They went to the zoo."},{"q":"What animals were there?","a":"Birds and bears were there."},{"q":"Where were the pandas?","a":"They were at the zoo."},{"q":"What were the pandas eating?","a":"They were eating bamboo."},{"q":"Do you like the zoo?","a":"Yes, I do."}]
+    },
+    {
+      "id":"colorful-seasons","title":"多彩四季","subtitle":"说说喜欢的季节","videoUrl":"","vttUrl":"","icon":"wb_sunny",
+      "vocabulary":["colorful","season","spring","summer","autumn","winter","favorite"],
+      "introLines":[{"en":"The seasons are colorful.","zh":"四季是多彩的。"},{"en":"It is spring.","zh":"这是春天。"},{"en":"It is summer.","zh":"这是夏天。"},{"en":"It is autumn.","zh":"这是秋天。"},{"en":"It is winter.","zh":"这是冬天。"},{"en":"What is your favorite season?","zh":"你最喜欢哪个季节？"},{"en":"I love summer.","zh":"我喜欢夏天。"}],
+      "translationDrill":[{"zh":"四季是多彩的。","en":"The seasons are colorful."},{"zh":"这是春天。","en":"It is spring."},{"zh":"这是夏天。","en":"It is summer."},{"zh":"这是秋天。","en":"It is autumn."},{"zh":"这是冬天。","en":"It is winter."},{"zh":"你最喜欢哪个季节？","en":"What is your favorite season?"},{"zh":"我喜欢夏天。","en":"I love summer."}],
+      "qaPairs":[{"q":"How many seasons are there?","a":"There are four seasons."},{"q":"What season comes after spring?","a":"Summer comes after spring."},{"q":"What is your favorite season?","a":"My favorite season is summer."},{"q":"Is winter a season?","a":"Yes, it is."},{"q":"Are the seasons colorful?","a":"Yes, they are."}]
+    }
+  ]
+}

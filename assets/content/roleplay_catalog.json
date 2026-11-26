@@ -1,0 +1,158 @@
+{
+  "categories": [
+    {
+      "id": "life",
+      "title": "生活",
+      "subtitle": "把日常交流说得自然又得体",
+      "imageAsset": "assets/images/roleplay/categories/life.webp",
+      "startColor": "#E8F6F0",
+      "endColor": "#F6C9B8",
+      "order": 1
+    },
+    {
+      "id": "travel",
+      "title": "旅行",
+      "subtitle": "从出发到入住都能从容表达",
+      "imageAsset": "assets/images/roleplay/categories/travel.webp",
+      "startColor": "#DCEEFF",
+      "endColor": "#F9DFA0",
+      "order": 2
+    },
+    {
+      "id": "work-study",
+      "title": "职场与学习",
+      "subtitle": "清楚表达观点、进度和计划",
+      "imageAsset": "assets/images/roleplay/categories/work-study.webp",
+      "startColor": "#E8E4F6",
+      "endColor": "#A9B8DB",
+      "order": 3
+    },
+    {
+      "id": "public-services",
+      "title": "公共服务",
+      "subtitle": "办理事务时准确说明你的需求",
+      "imageAsset": "assets/images/roleplay/categories/public-services.webp",
+      "startColor": "#DDF1EE",
+      "endColor": "#EED6B8",
+      "order": 4
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "cafe-order",
+      "categoryId": "life",
+      "category": "生活",
+      "title": "咖啡厅点单",
+      "icon": "local_cafe",
+      "imageAsset": "assets/images/roleplay/scenarios/cafe-order.webp",
+      "difficulty": "初级",
+      "learnerRole": "顾客",
+      "aiRole": "咖啡师",
+      "situation": "在咖啡厅询问饮品并完成点单。",
+      "opening": "Hello! What can I get for you today?",
+      "objectives": ["说明想要的饮品", "确认规格或口味", "礼貌完成点单"]
+    },
+    {
+      "id": "neighbor-chat",
+      "categoryId": "life",
+      "category": "生活",
+      "title": "认识新邻居",
+      "icon": "home",
+      "imageAsset": "assets/images/roleplay/scenarios/neighbor-chat.webp",
+      "difficulty": "初级",
+      "featuredOrder": 1,
+      "learnerRole": "住户",
+      "aiRole": "新邻居",
+      "situation": "在电梯里和刚搬来的邻居自然寒暄。",
+      "opening": "Hi, I just moved in next door. Nice to meet you!",
+      "objectives": ["自然打招呼", "简单介绍自己", "延续一个生活话题"]
+    },
+    {
+      "id": "hotel-checkin",
+      "categoryId": "travel",
+      "category": "旅行",
+      "title": "酒店入住",
+      "icon": "hotel",
+      "imageAsset": "assets/images/roleplay/scenarios/hotel-checkin.webp",
+      "difficulty": "初级",
+      "featuredOrder": 2,
+      "learnerRole": "住客",
+      "aiRole": "前台接待员",
+      "situation": "抵达酒店后确认预订并询问入住信息。",
+      "opening": "Welcome! Do you have a reservation with us?",
+      "objectives": ["说明已有预订", "确认入住信息", "询问一项酒店服务"]
+    },
+    {
+      "id": "airport-checkin",
+      "categoryId": "travel",
+      "category": "旅行",
+      "title": "机场值机",
+      "icon": "flight",
+      "imageAsset": "assets/images/roleplay/scenarios/airport-checkin.webp",
+      "difficulty": "中级",
+      "learnerRole": "旅客",
+      "aiRole": "值机柜台工作人员",
+      "situation": "在机场办理值机并确认行李与登机口信息。",
+      "opening": "Good morning. May I see your passport and ticket?",
+      "objectives": ["说明目的地", "确认行李安排", "询问登机口"]
+    },
+    {
+      "id": "work-update",
+      "categoryId": "work-study",
+      "category": "职场与学习",
+      "title": "沟通工作进度",
+      "icon": "work",
+      "imageAsset": "assets/images/roleplay/scenarios/work-update.webp",
+      "difficulty": "中级",
+      "featuredOrder": 3,
+      "learnerRole": "项目成员",
+      "aiRole": "同事",
+      "situation": "在简短会议中同步进度、问题与下一步计划。",
+      "opening": "Could you give us a quick update on your progress?",
+      "objectives": ["概括当前进度", "说明一个问题", "确认下一步计划"]
+    },
+    {
+      "id": "class-discussion",
+      "categoryId": "work-study",
+      "category": "职场与学习",
+      "title": "参与课堂讨论",
+      "icon": "school",
+      "imageAsset": "assets/images/roleplay/scenarios/class-discussion.webp",
+      "difficulty": "中级",
+      "learnerRole": "学习者",
+      "aiRole": "讨论伙伴",
+      "situation": "围绕一个熟悉的话题表达观点并回应他人。",
+      "opening": "What do you think is the best way to learn a language?",
+      "objectives": ["清楚表达观点", "给出一个理由", "回应对方观点"]
+    },
+    {
+      "id": "clinic-registration",
+      "categoryId": "public-services",
+      "category": "公共服务",
+      "title": "医院挂号",
+      "icon": "medical_services",
+      "imageAsset": "assets/images/roleplay/scenarios/clinic-registration.webp",
+      "difficulty": "初级",
+      "featuredOrder": 4,
+      "learnerRole": "就诊者",
+      "aiRole": "服务台工作人员",
+      "situation": "在医院服务台说明需求并确认科室与时间。",
+      "opening": "Hello. How can I help you today?",
+      "objectives": ["简要说明需求", "确认就诊科室", "询问候诊安排"]
+    },
+    {
+      "id": "bank-consultation",
+      "categoryId": "public-services",
+      "category": "公共服务",
+      "title": "银行业务咨询",
+      "icon": "account_balance",
+      "imageAsset": "assets/images/roleplay/scenarios/bank-consultation.webp",
+      "difficulty": "中级",
+      "learnerRole": "客户",
+      "aiRole": "银行工作人员",
+      "situation": "咨询常见银行业务流程，不涉及真实账户信息。",
+      "opening": "Good afternoon. What can I help you with?",
+      "objectives": ["说明要咨询的业务", "询问所需材料", "确认办理流程"]
+    }
+  ]
+}

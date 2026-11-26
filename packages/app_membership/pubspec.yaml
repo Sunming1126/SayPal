@@ -1,0 +1,14 @@
+name: app_membership
+description: Recovered SayPal membership and StoreKit client.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: '>=3.12.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: 1.6.0
+  in_app_purchase: 3.3.0
+  in_app_purchase_storekit: 0.4.12
