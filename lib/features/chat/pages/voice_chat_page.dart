@@ -7,6 +7,7 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/adventure_widgets.dart'
     show ChildFriendlyErrorCard;
+import '../../realtime/voice/widgets/hold_to_talk.dart';
 import '../../realtime/voice/widgets/voice_feedback_widgets.dart';
 import '../../vocabulary/models/vocab_models.dart';
 import '../models/chat_session.dart';
@@ -85,7 +86,7 @@ class _VoiceChatPageState extends ConsumerState<VoiceChatPage>
     final bool keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     final List<VoiceMessage> messages = <VoiceMessage>[
       _welcomeMessage,
-      ...state.messages,
+      ...state.displayMessages,
     ];
 
     return Scaffold(
@@ -113,7 +114,7 @@ class _VoiceChatPageState extends ConsumerState<VoiceChatPage>
               children: <Widget>[
                 for (final VoiceMessage message in messages)
                   _AnimatedMessageBubble(
-                    key: ValueKey<String>('animated-${message.id}'),
+                    key: ValueKey<String>('animated-${message.displayId}'),
                     message: message,
                     ready: ready,
                     canReplay: ready && !state.isMuted,
@@ -151,34 +152,17 @@ class _VoiceChatPageState extends ConsumerState<VoiceChatPage>
               ],
             ),
           ),
-          if (state.partial.isNotEmpty)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: AppColors.sunSoft,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Text(
-                '我听到：${state.partial}',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
+          if (recording && state.partial.isNotEmpty)
+            VoiceLiveTranscript(text: state.partial),
           _ChatComposer(
             ready: canStart,
             recording: recording,
-            microphonePublishing: state.isMicrophonePublishing,
-            statusHint: '点击说英语',
             input: _input,
             maxTextLength: 1000,
             onInputIntent: controller.warmUp,
-            onMicTap: recording
-                    ? () => unawaited(controller.endRecording())
-                : canStart
-                    ? () => unawaited(_startRecording(controller))
-                    : null,
+            onMicStart: () => unawaited(controller.startRecording()),
+            onMicRelease: () => unawaited(controller.endRecording()),
+            onMicCancel: () => unawaited(controller.cancelRecording()),
             onSendText: (String text) => _send(controller),
           ),
           // MainShell deliberately overlays its liquid-glass dock over page
@@ -291,10 +275,6 @@ class _VoiceChatPageState extends ConsumerState<VoiceChatPage>
   Future<void> _reconnect(VoiceChatController controller) async {
     await controller.pause();
     await controller.connect();
-  }
-
-  Future<void> _startRecording(VoiceChatController controller) async {
-    await controller.startRecording();
   }
 
   void _scrollToLatest() {
@@ -450,7 +430,7 @@ class _AnimatedMessageBubbleState extends State<_AnimatedMessageBubble>
         children: <Widget>[
           Flexible(
             child: Container(
-              key: ValueKey<String>('chat-message-${message.id}'),
+              key: ValueKey<String>('chat-message-${message.displayId}'),
               margin: const EdgeInsets.only(bottom: 14),
               padding: const EdgeInsets.all(15),
               constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
@@ -471,6 +451,7 @@ class _AnimatedMessageBubbleState extends State<_AnimatedMessageBubble>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
+                  if (message.isProvisional) const VoiceTranscribingLabel(),
                   Wrap(
                     children: <Widget>[
                       for (final String word
@@ -710,9 +691,9 @@ class _ChatComposer extends StatefulWidget {
   const _ChatComposer({
     required this.ready,
     required this.recording,
-    required this.microphonePublishing,
-    required this.statusHint,
-    required this.onMicTap,
+    required this.onMicStart,
+    required this.onMicRelease,
+    required this.onMicCancel,
     required this.onSendText,
     required this.input,
     required this.maxTextLength,
@@ -721,9 +702,9 @@ class _ChatComposer extends StatefulWidget {
 
   final bool ready;
   final bool recording;
-  final bool microphonePublishing;
-  final String statusHint;
-  final VoidCallback? onMicTap;
+  final VoidCallback onMicStart;
+  final VoidCallback onMicRelease;
+  final VoidCallback onMicCancel;
   final ValueChanged<String> onSendText;
   final TextEditingController input;
   final int maxTextLength;
@@ -791,7 +772,7 @@ class _ChatComposerState extends State<_ChatComposer> {
       );
 
   Widget _buildVoiceMode() {
-    final bool enabled = widget.onMicTap != null;
+    final bool enabled = widget.ready || widget.recording;
     return Container(
       key: const ValueKey<String>('chat-voice-composer'),
       padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
@@ -810,56 +791,44 @@ class _ChatComposerState extends State<_ChatComposer> {
             label: '键盘',
             onPressed: widget.recording ? null : _openKeyboard,
           ),
-          Semantics(
-            button: true,
-            label: widget.recording ? '结束并发送' : '点击说英语',
-            child: InkWell(
-              key: const ValueKey<String>('voice-mic-button'),
-              onTap: widget.onMicTap,
-              customBorder: const CircleBorder(),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    width: 74,
-                    height: 74,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: !enabled
-                          ? AppColors.surfaceMuted
-                          : widget.recording
-                              ? AppColors.coral
-                              : AppColors.primary,
-                      boxShadow: AppColors.softShadow,
-                    ),
-                    child: Icon(
-                      widget.recording
-                          ? Icons.stop_rounded
-                          : Icons.mic_rounded,
-                      size: 34,
-                      color: enabled
-                          ? Colors.white
-                          : AppColors.textSecondary,
-                    ),
+          HoldToTalk(
+            key: const ValueKey<String>('voice-mic-button'),
+            enabled: enabled,
+            onStart: widget.onMicStart,
+            onRelease: widget.onMicRelease,
+            onCancel: widget.onMicCancel,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: 74,
+                  height: 74,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: !enabled
+                        ? AppColors.surfaceMuted
+                        : widget.recording
+                        ? AppColors.coral
+                        : AppColors.primary,
+                    boxShadow: AppColors.softShadow,
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    widget.recording
-                        ? widget.microphonePublishing
-                            ? '说完了，点这里发送'
-                            : '点击发送'
-                        : enabled
-                            ? '点击说英语'
-                            : widget.statusHint,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  child: Icon(
+                    widget.recording ? Icons.stop_rounded : Icons.mic_rounded,
+                    size: 34,
+                    color: enabled ? Colors.white : AppColors.textSecondary,
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  widget.recording ? '松手发送' : '按住说英语',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
           ),
           _ComposerRoundAction(

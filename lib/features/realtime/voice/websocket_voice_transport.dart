@@ -28,7 +28,6 @@ class WebsocketVoiceTransport implements VoiceTransport {
   int _generation = 0;
   Completer<void>? _playback;
   Completer<void>? _readiness;
-  final BytesBuilder _pendingPcm = BytesBuilder(copy: false);
   int _uploadGeneration = 0;
   bool _playbackMuted = false;
   bool _recordingTurn = false;
@@ -158,29 +157,38 @@ class WebsocketVoiceTransport implements VoiceTransport {
   @override
   Future<void> uploadBufferedAudio(Stream<Uint8List> pcm) async {
     final generation = ++_uploadGeneration;
-    _pendingPcm.clear();
     await for (final chunk in pcm) {
       if (_closed || generation != _uploadGeneration) return;
-      _pendingPcm.add(chunk);
+      if (chunk.isEmpty) continue;
+      if (!_recordingTurn) {
+        _recordingTurn = true;
+        await send({'type': 'start'});
+        if (_closed || generation != _uploadGeneration) return;
+      }
+      final socket = _socket;
+      if (socket == null || socket.readyState != WebSocket.open) {
+        throw const VoiceFailure('连接已断开，请重连。');
+      }
+      const int chunkSize = 3200;
+      for (var offset = 0; offset < chunk.length; offset += chunkSize) {
+        socket.add(
+          Uint8List.sublistView(
+            chunk,
+            offset,
+            (offset + chunkSize).clamp(0, chunk.length),
+          ),
+        );
+      }
     }
   }
 
   @override
   Future<void> commitBufferedAudio() async {
-    final pcm = _pendingPcm.takeBytes();
-    if (pcm.isEmpty) {
+    if (!_recordingTurn) {
       _events.add({'type': 'no_speech'});
       return;
     }
-    await send({'type': 'start'});
-    const int chunkSize = 3200;
-    for (var offset = 0; offset < pcm.length; offset += chunkSize) {
-      if (_socket?.readyState != WebSocket.open) {
-        throw const VoiceFailure('连接已断开，请重连。');
-      }
-      _socket!.add(Uint8List.sublistView(
-          pcm, offset, (offset + chunkSize).clamp(0, pcm.length)));
-    }
+    _recordingTurn = false;
     await send({'type': 'end'});
   }
 
@@ -294,7 +302,6 @@ class WebsocketVoiceTransport implements VoiceTransport {
   @override
   Future<void> cancelRecording() async {
     _uploadGeneration++;
-    _pendingPcm.clear();
     await stopRecording();
     if (_recordingTurn) {
       _recordingTurn = false;

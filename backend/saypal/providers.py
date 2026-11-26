@@ -16,8 +16,8 @@ def is_definite_result(result: object) -> bool:
     """OpenSpeech marks a completed utterance in its JSON payload.
 
     The WebSocket frame flags describe transport sequencing, not reliably the
-    end of a learner's utterance. The reference backend therefore uses the
-    final ``utterances[].definite`` value. Keep that distinction here.
+    end of a learner's utterance. Each utterance may become definite before
+    the learner releases the recording button.
     """
     if not isinstance(result, dict):
         return False
@@ -93,59 +93,61 @@ class Providers:
                                       'OPENSPEECH_ASR_FORCE_TO_SPEECH_TIME', '1000'))}}
             await ws.send(frame(json.dumps(config).encode()))
 
-            audio_finished = asyncio.Event()
-
             async def send_audio():
-                try:
-                    while True:
-                        chunk = await queue.get()
-                        await ws.send(frame(chunk or b'', audio=True,
-                                            last=chunk is None))
-                        if chunk is None:
-                            return
-                finally:
-                    audio_finished.set()
+                while True:
+                    chunk = await queue.get()
+                    await ws.send(frame(chunk or b'', audio=True,
+                                        last=chunk is None))
+                    if chunk is None:
+                        return asyncio.get_running_loop().time()
 
             sender = asyncio.create_task(send_audio())
+            receiver = None
             text = ''
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 45
             try:
-                deadline = asyncio.get_running_loop().time() + 45
                 while True:
-                    remaining = deadline - asyncio.get_running_loop().time()
-                    if remaining <= 0:
-                        if text.strip():
-                            return text[:2000].strip()
-                        raise RuntimeError('asr_incomplete')
-                    # Once the final PCM frame has been sent, do not leave a
-                    # child staring at the thinking bubble for 45 seconds when
-                    # the provider already supplied a usable partial result but
-                    # omitted its semantic `definite` marker.
-                    if audio_finished.is_set():
-                        remaining = min(remaining, 3 if text.strip() else 12)
-                    try:
-                        data = await asyncio.wait_for(ws.recv(), remaining)
-                    except TimeoutError:
-                        if text.strip():
-                            return text[:2000].strip()
-                        raise RuntimeError('asr_incomplete') from None
+                    if receiver is None:
+                        receiver = asyncio.create_task(ws.recv())
+                    audio_end = sender.result() if sender.done() else None
+                    if audio_end is None:
+                        waiting = {receiver, sender}
+                        cutoff = deadline
                     else:
-                        obj, final = decode(data)
-                        result = obj.get('result', {})
-                        if isinstance(result, list):
-                            result = result[-1] if result else {}
-                        candidate = result.get('text') if isinstance(result, dict) else None
-                        if isinstance(candidate, str):
+                        waiting = {receiver}
+                        cutoff = min(deadline, audio_end + (3 if text else 12))
+                    done, _ = await asyncio.wait(
+                        waiting, timeout=max(0, cutoff - loop.time()),
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if not done:
+                        if audio_end is not None:
+                            return text
+                        raise RuntimeError('asr_incomplete')
+                    if receiver not in done:
+                        continue
+                    data = receiver.result()
+                    receiver = None
+                    obj, final = decode(data)
+                    result = obj.get('result', {})
+                    if isinstance(result, list):
+                        result = result[-1] if result else {}
+                    candidate = result.get('text') if isinstance(result, dict) else None
+                    if isinstance(candidate, str) and candidate.strip():
+                        candidate = candidate[:2000].strip()
+                        if candidate != text:
                             text = candidate
-                            if text.strip():
-                                await partial(text[:2000])
-                        # Match the working reference chain: definite is the
-                        # ASR semantic final result; frame-final is fallback
-                        # for deployments that omit utterance metadata.
-                        if is_definite_result(result) or (final and text.strip()):
-                            return text[:2000].strip()
+                            await partial(text)
+                    if sender.done():
+                        sender.result()
+                        if final or (audio_end is not None and is_definite_result(result)):
+                            return text
             finally:
-                sender.cancel()
-                await asyncio.gather(sender, return_exceptions=True)
+                tasks = [sender] if receiver is None else [sender, receiver]
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
 
     _ark_url = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions'
 

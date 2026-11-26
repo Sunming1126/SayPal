@@ -27,6 +27,8 @@ class VoiceMessage {
     this.translation = '',
     this.correction = '',
     this.audio,
+    this.isProvisional = false,
+    this.clientTurnId,
   });
 
   final String id;
@@ -35,6 +37,10 @@ class VoiceMessage {
   final String correction;
   final bool child;
   final Uint8List? audio;
+  final bool isProvisional;
+  final String? clientTurnId;
+
+  String get displayId => clientTurnId ?? id;
 
   VoiceMessage copy({
     String? text,
@@ -48,6 +54,8 @@ class VoiceMessage {
     translation: translation ?? this.translation,
     correction: correction ?? this.correction,
     audio: audio ?? this.audio,
+    isProvisional: isProvisional,
+    clientTurnId: clientTurnId,
   );
 }
 
@@ -107,6 +115,19 @@ class VoiceChatState {
       !isAwaitingFirstReply &&
       phase != VoicePhase.waiting &&
       phase != VoicePhase.playing;
+
+  List<VoiceMessage> get displayMessages {
+    if (pendingTurnKind != PendingTurnKind.voice) return messages;
+    return [
+      ...messages,
+      VoiceMessage(
+        id: pendingTurnId,
+        text: partial.isEmpty ? '语音消息' : partial,
+        child: true,
+        isProvisional: true,
+      ),
+    ];
+  }
 
   VoiceChatState copy({
     VoicePhase? phase,
@@ -190,6 +211,7 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
   Timer? _idleReleaseTimer;
   Future<void>? _connectFuture;
   PcmRecorder? _recorder;
+  Future<void>? _recorderStart;
   Future<Object?>? _voiceUploadFuture;
   int _captureGeneration = 0;
   int _epoch = 0;
@@ -297,6 +319,8 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
           : '小蓝暂时没准备好，请稍后再试一次。',
       isAwaitingFirstReply: false,
       capturePhase: VoiceCapturePhase.idle,
+      isMicrophonePublishing: false,
+      partial: '',
       pendingTurnId: '',
       pendingTurnKind: PendingTurnKind.none,
       thinkingStartedAt: null,
@@ -310,6 +334,7 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
       error: error is VoiceFailure ? error.message : '连接或音频操作失败，请重试。',
       continuous: false,
       isAwaitingFirstReply: false,
+      partial: '',
       pendingTurnId: '',
       pendingTurnKind: PendingTurnKind.none,
       thinkingStartedAt: null,
@@ -363,7 +388,11 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
                 event['completed'] as int? ?? state.completedObjectives,
           );
         case 'partial':
-          state = state.copy(partial: event['text'] as String? ?? '');
+          if (state.capturePhase == VoiceCapturePhase.recording ||
+              state.capturePhase == VoiceCapturePhase.paused ||
+              state.pendingTurnKind == PendingTurnKind.voice) {
+            state = state.copy(partial: event['text'] as String? ?? '');
+          }
         case 'no_speech':
           _deadline?.cancel();
           _voiceTurnPending = false;
@@ -414,16 +443,24 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
                 message.text == transcript &&
                 message.id == state.pendingTurnId,
           );
-          if (!alreadyShown) {
-            _append(
-              VoiceMessage(
-                id: event['id'] as String,
-                text: transcript,
-                child: true,
-              ),
-            );
-          }
-          state = state.copy(partial: '');
+          state = state.copy(
+            messages: alreadyShown
+                ? state.messages
+                : _withMessage(
+                    VoiceMessage(
+                      id: event['id'] as String,
+                      text: transcript,
+                      child: true,
+                      clientTurnId: state.pendingTurnKind == PendingTurnKind.voice
+                          ? state.pendingTurnId
+                          : null,
+                    ),
+                  ),
+            partial: '',
+            pendingTurnKind: state.pendingTurnKind == PendingTurnKind.voice
+                ? PendingTurnKind.none
+                : state.pendingTurnKind,
+          );
         case 'reply':
           _cancelIdleRelease();
           state = state.copy(
@@ -517,8 +554,10 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
         case 'done':
           _deadline?.cancel();
           _serverDone = true;
+          _voiceTurnPending = false;
           state = state.copy(
             isAwaitingFirstReply: false,
+            partial: '',
             pendingTurnId: '',
             pendingTurnKind: PendingTurnKind.none,
             thinkingStartedAt: null,
@@ -534,6 +573,7 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
             error: message,
             continuous: false,
             isAwaitingFirstReply: false,
+            partial: '',
             pendingTurnId: '',
             pendingTurnKind: PendingTurnKind.none,
             thinkingStartedAt: null,
@@ -557,16 +597,16 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
   }
 
   void _append(VoiceMessage message) {
+    state = state.copy(messages: _withMessage(message));
+  }
+
+  List<VoiceMessage> _withMessage(VoiceMessage message) {
     final List<VoiceMessage> messages = <VoiceMessage>[
       ...state.messages,
       message,
     ];
-    state = state.copy(
-      messages: List<VoiceMessage>.unmodifiable(
-        messages.length > 40
-            ? messages.sublist(messages.length - 40)
-            : messages,
-      ),
+    return List<VoiceMessage>.unmodifiable(
+      messages.length > 40 ? messages.sublist(messages.length - 40) : messages,
     );
   }
 
@@ -580,42 +620,67 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
     final PcmRecorder recorder = _recorderFactory();
     _recorder = recorder;
     final int captureGeneration = ++_captureGeneration;
-    warmUp();
-    final int epoch = _epoch;
-    try {
-      await recorder.start(
-        onLimit: () {
-          if (mounted && epoch == _epoch) {
-            unawaited(_stopAtRecordingLimit(epoch));
-          }
-        },
-      );
-    } catch (error) {
-      await recorder.dispose();
-      if (identical(_recorder, recorder)) _recorder = null;
-      _error(error);
-      return;
-    }
-    if (!mounted || epoch != _epoch || captureGeneration != _captureGeneration) {
-      await recorder.dispose();
-      return;
-    }
-    _voiceUploadFuture = _uploadRecordingWhenReady(recorder.frames, epoch, captureGeneration);
     state = state.copy(
       phase: VoicePhase.recording,
       continuous: continuous,
       partial: '',
       error: '',
       notice: '',
-      isMicrophonePublishing: true,
+      isMicrophonePublishing: false,
       capturePhase: VoiceCapturePhase.recording,
     );
+    warmUp();
+    final int epoch = _epoch;
+    final start = _recorderStart = recorder.start(
+      onLimit: () {
+        if (mounted && epoch == _epoch) {
+          unawaited(_stopAtRecordingLimit(epoch));
+        }
+      },
+    );
+    _voiceUploadFuture = _uploadRecordingWhenReady(
+      recorder.frames,
+      start,
+      epoch,
+      captureGeneration,
+    );
+    try {
+      await start;
+    } catch (error) {
+      if (mounted &&
+          epoch == _epoch &&
+          captureGeneration == _captureGeneration &&
+          state.capturePhase == VoiceCapturePhase.recording) {
+        await _discardLocalRecording();
+        if (!mounted || epoch != _epoch) return;
+        _voiceTurnPending = false;
+        state = state.copy(
+          phase: state.botReady ? VoicePhase.ready : VoicePhase.offline,
+          capturePhase: VoiceCapturePhase.idle,
+        );
+        _error(error);
+      }
+      return;
+    }
+    if (mounted &&
+        epoch == _epoch &&
+        captureGeneration == _captureGeneration &&
+        state.capturePhase == VoiceCapturePhase.recording) {
+      state = state.copy(isMicrophonePublishing: true);
+    }
   }
 
   Future<Object?> _uploadRecordingWhenReady(
-    Stream<Uint8List> frames, int epoch, int generation,
+    Stream<Uint8List> frames,
+    Future<void> start,
+    int epoch,
+    int generation,
   ) async {
     try {
+      await start;
+      if (!mounted || epoch != _epoch || generation != _captureGeneration) {
+        return null;
+      }
       await connect();
       final transport = _transport;
       if (!mounted || epoch != _epoch || generation != _captureGeneration ||
@@ -635,19 +700,9 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
       return;
     }
     final int epoch = _epoch;
+    final recorder = _recorder;
+    final start = _recorderStart;
     final upload = _voiceUploadFuture;
-    try {
-      await _recorder?.stop();
-      await _recorder?.dispose();
-      if (!mounted || epoch != _epoch) return;
-      _recorder = null;
-    } catch (error) {
-      if (mounted && epoch == _epoch) {
-        await pause();
-        if (mounted && _epoch == epoch + 1) _error(error);
-      }
-      return;
-    }
     final String turnId = 'voice-${DateTime.now().microsecondsSinceEpoch}';
     state = state.copy(
       phase: VoicePhase.waiting,
@@ -657,8 +712,12 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
       pendingTurnId: turnId,
       pendingTurnKind: PendingTurnKind.voice,
       thinkingStartedAt: DateTime.now(),
+      notice: '',
     );
     try {
+      await start;
+      if (!mounted || epoch != _epoch || state.pendingTurnId != turnId) return;
+      await recorder?.stop();
       final uploadError = await upload;
       if (!mounted || epoch != _epoch || state.pendingTurnId != turnId) return;
       _voiceUploadFuture = null;
@@ -670,20 +729,40 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
       _watchdog(90);
       await transport.commitBufferedAudio();
       if (mounted && epoch == _epoch) {
+        _recorder = null;
+        _recorderStart = null;
+        if (recorder != null) {
+          unawaited(recorder.dispose().catchError((Object _) {}));
+        }
         state = state.copy(capturePhase: VoiceCapturePhase.idle);
       }
     } catch (error) {
       if (mounted && epoch == _epoch) {
         await pause();
-        _error(error);
+        if (mounted && _epoch == epoch + 1) _error(error);
       }
     }
   }
 
+  Future<void> cancelRecording() async {
+    if (state.capturePhase == VoiceCapturePhase.recording ||
+        state.capturePhase == VoiceCapturePhase.paused) {
+      await pause();
+    }
+  }
+
   Future<void> _stopAtRecordingLimit(int epoch) async {
-    if (!mounted || epoch != _epoch || state.phase != VoicePhase.recording) {
+    if (!mounted ||
+        epoch != _epoch ||
+        state.capturePhase != VoiceCapturePhase.recording) {
       return;
     }
+    state = state.copy(
+      isMicrophonePublishing: false,
+      capturePhase: VoiceCapturePhase.paused,
+      error: '',
+      notice: '已达录音上限，松手发送。',
+    );
     try {
       await _recorder?.stop();
     } catch (error) {
@@ -693,13 +772,6 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
       }
       return;
     }
-    if (!mounted || epoch != _epoch) return;
-    state = state.copy(
-      isMicrophonePublishing: false,
-      capturePhase: VoiceCapturePhase.paused,
-      error: '',
-      notice: '已暂停收音，点击发送刚才说的内容。',
-    );
   }
 
   Future<void> sendText(String text) async {
@@ -767,11 +839,19 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
 
   Future<void> cancelPendingTurn() async {
     if (!state.isAwaitingFirstReply) return;
+    final epoch = _epoch;
+    const notice = '已取消等待，可以重新输入。';
+    if (state.capturePhase == VoiceCapturePhase.submitting) {
+      await pause();
+      if (mounted && _epoch == epoch + 1) state = state.copy(notice: notice);
+      return;
+    }
     _deadline?.cancel();
     try {
       await _transport?.cancelPendingTurn();
     } catch (_) {}
-    if (!mounted) return;
+    if (!mounted || epoch != _epoch) return;
+    _voiceTurnPending = false;
     state = state.copy(
       phase: state.botReady ? VoicePhase.ready : VoicePhase.connecting,
       isAwaitingFirstReply: false,
@@ -779,7 +859,8 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
       pendingTurnId: '',
       pendingTurnKind: PendingTurnKind.none,
       thinkingStartedAt: null,
-      notice: '已取消等待，可以重新输入。',
+      partial: '',
+      notice: notice,
     );
     if (state.botReady) _scheduleIdleRelease();
   }
@@ -986,10 +1067,15 @@ class VoiceConversationController extends StateNotifier<VoiceChatState> {
 
   Future<void> _discardLocalRecording() async {
     final recorder = _recorder;
+    final start = _recorderStart;
     _recorder = null;
+    _recorderStart = null;
     _captureGeneration++;
     _voiceUploadFuture = null;
     if (recorder == null) return;
+    try {
+      await start;
+    } catch (_) {}
     try {
       await recorder.dispose();
     } catch (_) {}

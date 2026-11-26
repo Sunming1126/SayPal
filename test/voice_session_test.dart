@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:saypal/features/realtime/voice/buffered_pcm_recorder.dart';
 import 'package:saypal/features/realtime/voice/conversation_context.dart';
 import 'package:saypal/features/realtime/voice/voice_conversation_controller.dart';
 import 'package:saypal/features/realtime/voice/voice_transport.dart';
@@ -50,12 +52,105 @@ void main() {
     );
   });
 
-  test('partial replies keep the turn busy and missing audio permits next turn', () async {
+  test(
+    'WebSocket streams PCM before release and sends one end marker',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final commands = StreamController<dynamic>();
+      final received = StreamIterator(commands.stream);
+      addTearDown(received.cancel);
+      server.listen((request) async {
+        final socket = await WebSocketTransformer.upgrade(request);
+        socket.add('{"type":"ready"}');
+        socket.listen(commands.add, onDone: commands.close);
+      });
+      final transport = WebsocketVoiceTransport(
+        'http://127.0.0.1:${server.port}',
+      );
+      addTearDown(transport.close);
+      await transport.connect(context: const ConversationContext.freeChat());
+
+      final frames = StreamController<Uint8List>();
+      final upload = transport.uploadBufferedAudio(frames.stream);
+      frames.add(Uint8List.fromList([1, 2]));
+      expect(await received.moveNext(), isTrue);
+      expect(received.current, '{"type":"start"}');
+      expect(await received.moveNext(), isTrue);
+      expect(received.current, [1, 2]);
+
+      frames.add(Uint8List.fromList([3, 4]));
+      await frames.close();
+      await upload;
+      await transport.commitBufferedAudio();
+      expect(await received.moveNext(), isTrue);
+      expect(received.current, [3, 4]);
+      expect(await received.moveNext(), isTrue);
+      expect(received.current, '{"type":"end"}');
+    },
+  );
+
+  test('release shows a draft immediately during recorder startup', () async {
     final transport = _FakeVoiceTransport();
-    final controller = VoiceConversationController(() => transport);
+    final recorder = _FakeRecorder();
+    final controller = VoiceConversationController(
+      () => transport,
+      recorderFactory: () => recorder,
+    );
     late VoiceChatState state;
     controller.addListener((current) => state = current);
     addTearDown(controller.dispose);
+
+    final start = controller.startRecording();
+    final submit = controller.endRecording();
+    final displayId = state.displayMessages.single.displayId;
+    expect(state.displayMessages.single.isProvisional, isTrue);
+    expect(state.messages, isEmpty);
+    expect(transport.commits, 0);
+    recorder.started.complete();
+    await start;
+    await submit;
+    expect(transport.commits, 1);
+
+    transport.emit({'type': 'partial', 'text': 'I like'});
+    expect(state.displayMessages.single.text, 'I like');
+    transport.emit({'type': 'transcript', 'id': '1', 'text': 'I like apples.'});
+    expect(state.displayMessages.single.text, 'I like apples.');
+    expect(state.displayMessages.single.isProvisional, isFalse);
+    expect(state.messages.single.id, '1');
+    expect(state.displayMessages.single.displayId, displayId);
+  });
+
+  test('cancelling during recorder startup discards a released turn', () async {
+    final transport = _FakeVoiceTransport();
+    final recorder = _FakeRecorder();
+    final controller = VoiceConversationController(
+      () => transport,
+      recorderFactory: () => recorder,
+    );
+    late VoiceChatState state;
+    controller.addListener((current) => state = current);
+    addTearDown(controller.dispose);
+
+    final start = controller.startRecording();
+    final submit = controller.endRecording();
+    final cancel = controller.cancelPendingTurn();
+    recorder.started.complete();
+    await Future.wait([start, submit, cancel]);
+
+    expect(transport.commits, 0);
+    expect(state.displayMessages, isEmpty);
+    expect(state.canStartTurn, isTrue);
+  });
+
+  test(
+    'partial replies keep the turn busy and missing audio permits next turn',
+    () async {
+      final transport = _FakeVoiceTransport();
+      final controller = VoiceConversationController(() => transport);
+      late VoiceChatState state;
+      controller.addListener((current) => state = current);
+      addTearDown(controller.dispose);
 
     await controller.sendText('apple');
     transport.emit({'type': 'reply_segment', 'id': '1', 'text': 'I like apples.'});
@@ -78,6 +173,7 @@ void main() {
 class _FakeVoiceTransport implements VoiceTransport {
   final _events = StreamController<Map<String, dynamic>>.broadcast(sync: true);
   final sent = <String>[];
+  int commits = 0;
 
   @override
   Stream<Map<String, dynamic>> get events => _events.stream;
@@ -98,6 +194,14 @@ class _FakeVoiceTransport implements VoiceTransport {
   Future<void> setSessionActive(bool active) async {}
 
   @override
+  Future<void> uploadBufferedAudio(Stream<Uint8List> pcm) => pcm.drain();
+
+  @override
+  Future<void> commitBufferedAudio() async {
+    commits++;
+  }
+
+  @override
   Future<void> cancelPendingTurn() async {}
 
   @override
@@ -105,4 +209,24 @@ class _FakeVoiceTransport implements VoiceTransport {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeRecorder implements PcmRecorder {
+  final started = Completer<void>();
+  final _frames = StreamController<Uint8List>();
+
+  @override
+  Stream<Uint8List> get frames => _frames.stream;
+
+  @override
+  Future<void> start({required void Function() onLimit}) => started.future;
+
+  @override
+  Future<void> stop() => _frames.close();
+
+  @override
+  Future<void> cancel() async {}
+
+  @override
+  Future<void> dispose() async {}
 }

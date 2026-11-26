@@ -27,6 +27,7 @@ class BufferedPcmRecorder implements PcmRecorder {
   final Duration maxDuration;
   final StreamController<Uint8List> _frames = StreamController<Uint8List>();
   StreamSubscription<Uint8List>? _subscription;
+  Future<void>? _stopping;
   Timer? _limit;
   bool _recording = false;
   bool _disposed = false;
@@ -66,16 +67,18 @@ class BufferedPcmRecorder implements PcmRecorder {
   }
 
   @override
-  Future<void> stop() async {
+  Future<void> stop() => _stopping ??= _stop();
+
+  Future<void> _stop() async {
     if (!_recording) {
       _closeFrames();
       return;
     }
-    _recording = false;
     _limit?.cancel();
     try {
       await _recorder.stop();
     } finally {
+      _recording = false;
       try {
         await _subscription?.cancel();
       } finally {
@@ -101,6 +104,9 @@ class BufferedPcmRecorder implements PcmRecorder {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    try {
+      await _stopping;
+    } catch (_) {}
     await cancel();
     await _recorder.dispose();
   }

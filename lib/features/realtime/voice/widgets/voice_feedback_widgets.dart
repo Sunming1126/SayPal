@@ -4,6 +4,46 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 
+class VoiceLiveTranscript extends StatelessWidget {
+  const VoiceLiveTranscript({required this.text, super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.sunSoft,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 52),
+        child: SingleChildScrollView(
+          reverse: true,
+          child: Text('我听到：$text'),
+        ),
+      ),
+    );
+  }
+}
+
+class VoiceTranscribingLabel extends StatelessWidget {
+  const VoiceTranscribingLabel({
+    this.color = AppColors.textSecondary,
+    super.key,
+  });
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text('识别中…', style: TextStyle(fontSize: 12, color: color));
+  }
+}
+
 /// Converts service diagnostics into short, user-facing recovery copy.
 /// The controller retains the original message for tests and diagnostics;
 /// screens should use this text so infrastructure terms never reach children.

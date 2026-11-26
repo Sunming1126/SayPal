@@ -13,6 +13,7 @@ import '../../../../core/widgets/adventure_widgets.dart';
 import '../conversation_context.dart';
 import '../voice_conversation_controller.dart';
 import '../voice_conversation_providers.dart';
+import '../widgets/hold_to_talk.dart';
 import '../widgets/voice_feedback_widgets.dart';
 
 class PracticeConversationPage extends ConsumerStatefulWidget {
@@ -146,7 +147,9 @@ class _PracticeConversationPageState
       },
     );
     final bool ready = state.phase == VoicePhase.ready;
-    final bool recording = state.phase == VoicePhase.recording;
+    final bool recording =
+        state.capturePhase == VoiceCapturePhase.recording ||
+        state.capturePhase == VoiceCapturePhase.paused;
     final bool offline = state.phase == VoicePhase.offline;
     final List<VoiceMessage> messages = <VoiceMessage>[
       VoiceMessage(
@@ -154,7 +157,7 @@ class _PracticeConversationPageState
         text: widget.welcome,
         child: false,
       ),
-      ...state.messages,
+      ...state.displayMessages,
     ];
 
     if (_isRoleplay) {
@@ -219,12 +222,8 @@ class _PracticeConversationPageState
                 },
               ),
             ),
-            if (state.partial.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.all(8),
-                child: Text('正在识别：${state.partial}',
-                    maxLines: 2, overflow: TextOverflow.ellipsis),
-              ),
+            if (recording && state.partial.isNotEmpty)
+              VoiceLiveTranscript(text: state.partial),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
               child: Column(
@@ -233,16 +232,31 @@ class _PracticeConversationPageState
                     Row(
                       children: <Widget>[
                         Expanded(
-                          child: FilledButton.icon(
-                            onPressed: ready
-                                ? () => controller.startRecording()
-                                : recording
-                                    ? controller.endRecording
-                                    : null,
-                            icon: Icon(recording
-                                ? Icons.stop_circle_outlined
-                                : Icons.mic),
-                            label: Text(recording ? '说完了，发送' : '点击说话'),
+                          child: HoldToTalk(
+                            key: const ValueKey<String>('voice-mic-button'),
+                            enabled: state.canStartTurn || recording,
+                            onStart: () =>
+                                unawaited(controller.startRecording()),
+                            onRelease: () =>
+                                unawaited(controller.endRecording()),
+                            onCancel: () =>
+                                unawaited(controller.cancelRecording()),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: recording
+                                    ? AppColors.coral
+                                    : AppColors.primary,
+                                borderRadius: BorderRadius.circular(24),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Text(
+                                  recording ? '松手发送' : '按住说英语',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -348,15 +362,8 @@ class _PracticeConversationPageState
                   },
                 ),
               ),
-              if (state.partial.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: Text(
-                    '正在识别：${state.partial}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
+              if (recording && state.partial.isNotEmpty)
+                VoiceLiveTranscript(text: state.partial),
               if (_suggestion != null ||
                   _suggestionBusy ||
                   _suggestionError.isNotEmpty)
@@ -417,19 +424,15 @@ class _PracticeConversationPageState
                 key: _roleplayComposer,
                 ready: canStart,
                 recording: recording,
-                microphonePublishing: state.isMicrophonePublishing,
-                statusHint: '点击说话',
                 input: _input,
                 onInputIntent: controller.warmUp,
                 maxTextLength: 300,
                 onHint: ready && !_suggestionBusy
                     ? () => unawaited(_generateSuggestion())
                     : null,
-                onMicTap: recording
-                    ? () => unawaited(controller.endRecording())
-                    : canStart
-                        ? () => unawaited(controller.startRecording())
-                        : null,
+                onMicStart: () => unawaited(controller.startRecording()),
+                onMicRelease: () => unawaited(controller.endRecording()),
+                onMicCancel: () => unawaited(controller.cancelRecording()),
                 onSendText: (String text) => controller.sendText(text),
               ),
             ],
@@ -700,7 +703,7 @@ class _RoleplayMessageBubble extends StatelessWidget {
   Widget build(BuildContext context) => Align(
         alignment: message.child ? Alignment.centerRight : Alignment.centerLeft,
         child: Container(
-          key: ValueKey<String>('practice-message-${message.id}'),
+          key: ValueKey<String>('practice-message-${message.displayId}'),
           constraints: BoxConstraints(
             maxWidth: MediaQuery.sizeOf(context).width *
                 (message.child ? .78 : .76),
@@ -722,6 +725,7 @@ class _RoleplayMessageBubble extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
+              if (message.isProvisional) const VoiceTranscribingLabel(),
               Text(
                 message.text,
                 style: const TextStyle(
@@ -956,9 +960,9 @@ class _RoleplayComposer extends StatefulWidget {
   const _RoleplayComposer({
     required this.ready,
     required this.recording,
-    required this.microphonePublishing,
-    required this.statusHint,
-    required this.onMicTap,
+    required this.onMicStart,
+    required this.onMicRelease,
+    required this.onMicCancel,
     required this.onSendText,
     required this.onHint,
     required this.input,
@@ -968,9 +972,9 @@ class _RoleplayComposer extends StatefulWidget {
   });
   final bool ready;
   final bool recording;
-  final bool microphonePublishing;
-  final String statusHint;
-  final VoidCallback? onMicTap;
+  final VoidCallback onMicStart;
+  final VoidCallback onMicRelease;
+  final VoidCallback onMicCancel;
   final ValueChanged<String> onSendText;
   final VoidCallback? onHint;
   final TextEditingController input;
@@ -1035,10 +1039,12 @@ class _RoleplayComposerState extends State<_RoleplayComposer> {
               label: '键盘',
               onPressed: widget.recording ? null : showTextInput,
             ),
-            InkWell(
+            HoldToTalk(
               key: const ValueKey<String>('voice-mic-button'),
-              onTap: widget.onMicTap,
-              customBorder: const CircleBorder(),
+              enabled: widget.ready || widget.recording,
+              onStart: widget.onMicStart,
+              onRelease: widget.onMicRelease,
+              onCancel: widget.onMicCancel,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
@@ -1047,7 +1053,7 @@ class _RoleplayComposerState extends State<_RoleplayComposer> {
                     height: 74,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: widget.onMicTap == null
+                      color: !widget.ready && !widget.recording
                           ? AppColors.surfaceMuted
                           : widget.recording
                               ? AppColors.coral
@@ -1057,20 +1063,14 @@ class _RoleplayComposerState extends State<_RoleplayComposer> {
                     child: Icon(
                       widget.recording ? Icons.stop_rounded : Icons.mic_rounded,
                       size: 34,
-                      color: widget.onMicTap == null
+                      color: !widget.ready && !widget.recording
                           ? AppColors.textSecondary
                           : Colors.white,
                     ),
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    widget.recording
-                        ? widget.microphonePublishing
-                            ? '说完点这里发送'
-                            : '点击发送'
-                        : widget.ready
-                            ? '点击说英语'
-                            : widget.statusHint,
+                    widget.recording ? '松手发送' : '按住说英语',
                     style: const TextStyle(
                         fontSize: 12,
                         color: AppColors.textSecondary,
@@ -1211,6 +1211,8 @@ class _MessageBubble extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
+                  if (message.isProvisional)
+                    const VoiceTranscribingLabel(color: Colors.white70),
                   Text(
                     message.text,
                     style: TextStyle(
