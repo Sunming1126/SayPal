@@ -110,6 +110,56 @@ class VideoRoleplayLesson {
   Uri get coverUri => _mediaBase.resolve('covers/$id.jpg');
   Uri? get originalVideoUri =>
       hasOriginal ? _mediaBase.resolve('original/$id.mp4') : null;
+
+  Future<Uri?> resolveOrigin({required bool original}) async {
+    if (_mediaBaseUrl != _defaultMediaBase) return null;
+    final lessonNumber = RegExp(r'^lesson-(\d{3})$').firstMatch(id)?.group(1);
+    final endpoint = switch (id) {
+      'clever-rat' || 'teachers-office' => id,
+      _ when lessonNumber != null => 'main/${int.parse(lessonNumber)}',
+      _ => null,
+    };
+    if (endpoint == null) return null;
+    try {
+      final response = await http
+          .get(_mediaBase.resolve('/saypal/video-origin/$endpoint'))
+          .timeout(const Duration(seconds: 4));
+      if (response.statusCode != 200) return null;
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final video = decoded['topic']['video'] as Map<String, dynamic>;
+      if (!original) return _readOriginUrl(video['url']);
+      final streams = video['streams'] as List<dynamic>?;
+      for (final stream in streams ?? const []) {
+        if (stream is Map && stream['definition'] == 'OD') {
+          return _readOriginUrl(stream['url']);
+        }
+      }
+    } on Exception {
+      return null;
+    } on TypeError {
+      return null;
+    }
+    return null;
+  }
+
+  static Uri? _readOriginUrl(Object? url) {
+    if (url is! String) return null;
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.userInfo.isNotEmpty ||
+        (uri.host != 'yx.zqyey.com.cn' &&
+            !uri.host.endsWith('.aliyuncs.com'))) {
+      return null;
+    }
+    final expires = int.tryParse(uri.queryParameters['Expires'] ?? '');
+    if (expires != null &&
+        expires <= DateTime.now().millisecondsSinceEpoch ~/ 1000 + 30) {
+      return null;
+    }
+    return uri;
+  }
+
   String get catalogId => 'video-$id';
   String get route => '/scenario/video-practice/$id';
 

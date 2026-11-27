@@ -142,6 +142,10 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
   bool _playRequested = false;
   bool _queuedPreload = false;
   Future<void>? _preloadFuture;
+  Future<Uri?>? _initialOrigin;
+  int _videoLoadGeneration = 0;
+  bool _usingDirectSource = false;
+  Duration _lastVideoPosition = Duration.zero;
   Stopwatch? _playbackClock;
   int _bufferingCount = 0;
   bool _loggedPlaybackStart = false;
@@ -151,51 +155,80 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _initialOrigin = widget.lesson.resolveOrigin(original: false);
   }
 
   Future<void> _loadVideo({
     Duration position = Duration.zero,
     bool autoplay = true,
+    bool preferDirect = true,
   }) async {
+    final generation = ++_videoLoadGeneration;
     _disposePlayer();
+    _lastVideoPosition = position;
+    setState(() => _videoError = false);
     if (kDebugMode) {
       _playbackClock = Stopwatch()..start();
       _bufferingCount = 0;
       _loggedPlaybackStart = false;
       _wasBuffering = false;
     }
-    final player = VideoPlayerController.networkUrl(
-      _useOriginal
-          ? widget.lesson.originalVideoUri ?? widget.lesson.videoUri
-          : widget.lesson.videoUri,
-    );
-    _player = player;
-    setState(() => _videoError = false);
-    try {
-      await player.initialize().timeout(const Duration(seconds: 20));
-      if (!mounted || !identical(_player, player)) return;
-      if (position > Duration.zero) await player.seekTo(position);
-      if (!mounted || !identical(_player, player)) return;
-      player.addListener(_onVideoChanged);
-      setState(() {});
-      if (_foreground && autoplay) await player.play();
-    } catch (_) {
-      if (mounted && identical(_player, player)) {
-        setState(() => _videoError = true);
+    final original = _useOriginal;
+    final initialOrigin = original ? null : _initialOrigin;
+    _initialOrigin = null;
+    final direct = preferDirect
+        ? await (initialOrigin ??
+              widget.lesson.resolveOrigin(original: original))
+        : null;
+    if (!_isCurrentLoad(generation)) return;
+    final hosted = original
+        ? widget.lesson.originalVideoUri ?? widget.lesson.videoUri
+        : widget.lesson.videoUri;
+    for (final source in [?direct, hosted]) {
+      _usingDirectSource = source == direct;
+      final player = VideoPlayerController.networkUrl(source);
+      setState(() => _player = player);
+      try {
+        await player.initialize().timeout(
+          Duration(seconds: _usingDirectSource ? 12 : 20),
+        );
+        if (!_isCurrentLoad(generation)) return;
+        if (position > Duration.zero) await player.seekTo(position);
+        if (!_isCurrentLoad(generation)) return;
+        if (kDebugMode) {
+          debugPrint(
+            'SayPal video ${widget.lesson.id}: source '
+            '${_usingDirectSource ? 'origin' : 'hosted'}',
+          );
+        }
+        player.addListener(_onVideoChanged);
+        setState(() {});
+        if (_foreground && autoplay) await player.play();
+        return;
+      } catch (_) {
+        if (!_isCurrentLoad(generation)) return;
+        _disposePlayer();
       }
     }
+    setState(() => _videoError = true);
   }
+
+  bool _isCurrentLoad(int generation) =>
+      mounted && !_practicing && generation == _videoLoadGeneration;
 
   void _selectQuality(bool original) {
     if (_useOriginal == original) return;
     final value = _player?.value;
     setState(() => _useOriginal = original);
-    if (value != null && !_videoError) {
+    if (_preloadFuture != null || value != null || _playRequested) {
       _preloadFuture = _loadVideo(
-        position: value.position,
+        position: value?.position ?? _lastVideoPosition,
         autoplay:
             _playRequested &&
-            (!value.isInitialized || value.isPlaying || value.isBuffering),
+            (value == null ||
+                !value.isInitialized ||
+                value.isPlaying ||
+                value.isBuffering),
       );
     }
   }
@@ -212,7 +245,11 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
 
   Future<void> _playFromCover() async {
     setState(() => _playRequested = true);
-    await _preloadFuture;
+    Future<void>? waiting;
+    do {
+      waiting = _preloadFuture;
+      await waiting;
+    } while (mounted && !_practicing && waiting != _preloadFuture);
     if (!mounted || _practicing || !_foreground) return;
     final player = _player;
     if (player == null || _videoError || player.value.hasError) {
@@ -224,6 +261,15 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
 
   void _onVideoChanged() {
     final value = _player!.value;
+    if (value.hasError && _usingDirectSource) {
+      _preloadFuture = _loadVideo(
+        position: _lastVideoPosition,
+        autoplay: _playRequested,
+        preferDirect: false,
+      );
+      return;
+    }
+    if (!value.hasError) _lastVideoPosition = value.position;
     if (kDebugMode) _logPlayback(value);
     if (value.isCompleted && !_watched) {
       setState(() => _watched = true);
@@ -288,6 +334,7 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _videoLoadGeneration++;
     _disposePlayer();
     super.dispose();
   }
@@ -308,6 +355,7 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
   }
 
   void _startPractice() {
+    _videoLoadGeneration++;
     _disposePlayer();
     unawaited(
       ref
@@ -362,7 +410,7 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
                     : _videoError
                     ? _playbackError()
                     : player == null
-                    ? _videoPreview()
+                    ? _videoPreview(loading: true)
                     : ValueListenableBuilder<VideoPlayerValue>(
                         valueListenable: player,
                         builder: (context, value, _) {
