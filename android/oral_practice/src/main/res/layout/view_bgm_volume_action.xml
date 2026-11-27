@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="match_parent"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="4dp"
+    android:paddingEnd="4dp">
+
+    <TextView
+        android:id="@+id/tv_bgm_toolbar_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="6dp"
+        android:text="BGM"
+        android:textColor="@color/kids_hint"
+        android:textSize="12sp"
+        android:textStyle="bold" />
+
+    <androidx.appcompat.widget.AppCompatSeekBar
+        android:id="@+id/sb_bgm_toolbar_volume"
+        android:layout_width="88dp"
+        android:layout_height="wrap_content"
+        android:max="100"
+        android:minHeight="32dp"
+        android:progress="16" />
+
+</LinearLayout>

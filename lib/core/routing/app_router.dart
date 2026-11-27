@@ -18,6 +18,7 @@ import '../../features/scenario/models/scenario_models.dart';
 import '../../features/scenario/pages/scenario_intro_page.dart';
 import '../../features/scenario/pages/scenario_session_page.dart';
 import '../../features/scenario/pages/custom_roleplay_page.dart';
+import '../../features/scenario/pages/oral_practice_entry_page.dart';
 import '../../features/scenario/pages/roleplay_catalog_page.dart';
 import '../../features/scenario/pages/roleplay_collection_page.dart';
 import '../../features/scenario/pages/roleplay_session_page.dart';
@@ -90,14 +91,18 @@ GoRouter buildAppRouter(Ref ref) {
       GoRoute(
         path: '/scenario/video-practice',
         parentNavigatorKey: rootNavigatorKey,
-        builder: (context, state) => const VideoRoleplayCatalogPage(),
+        builder: (context, state) => hasNativeOralPractice
+            ? const OralPracticeEntryPage()
+            : const VideoRoleplayCatalogPage(),
         routes: [
           GoRoute(
             path: ':lessonId',
-            builder: (context, state) => VideoRoleplayLessonPage(
-              key: state.pageKey,
-              lessonId: state.pathParameters['lessonId']!,
-            ),
+            builder: (context, state) => hasNativeOralPractice
+                ? const OralPracticeEntryPage()
+                : VideoRoleplayLessonPage(
+                    key: state.pageKey,
+                    lessonId: state.pathParameters['lessonId']!,
+                  ),
           ),
         ],
       ),

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/action_history"
+        android:title="履歴"
+        android:icon="@drawable/ic_history_outline" />
+
+    <item
+        android:id="@+id/action_settings"
+        android:title="設定"
+        android:icon="@drawable/ic_settings_outline" />
+
+    <item
+        android:id="@+id/action_profile"
+        android:title="ユーザー"
+        android:icon="@drawable/ic_profile_outline" />
+
+    <item
+        android:id="@+id/action_stats"
+        android:title="学習統計"
+        android:icon="@drawable/ic_history_outline" />
+
+</menu>

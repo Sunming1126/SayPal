@@ -1,0 +1,320 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="12dp"
+    android:paddingBottom="28dp"
+    android:background="@color/kids_background"
+    tools:context=".MainActivity">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/top_app_bar"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:minHeight="56dp"
+        android:background="@color/kids_toolbar_bg"
+        app:itemIconTint="@color/kids_hint"
+        app:popupTheme="@style/ThemeOverlay.MyApplication.Kids.ToolbarPopup"
+        app:titleTextColor="@color/kids_on_surface"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:title="" />
+
+    <View
+        android:id="@+id/top_divider"
+        android:layout_width="0dp"
+        android:layout_height="1dp"
+        android:background="@color/kids_divider"
+        app:layout_constraintTop_toBottomOf="@+id/top_app_bar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/subtitle_card"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginTop="12dp"
+        app:cardCornerRadius="16dp"
+        app:cardBackgroundColor="@color/kids_surface"
+        app:strokeColor="@color/kids_divider"
+        app:strokeWidth="0dp"
+        app:cardUseCompatPadding="true"
+        app:layout_constraintBottom_toTopOf="@+id/action_cluster"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/top_divider">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_chat"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:padding="10dp"
+                android:clipToPadding="false" />
+
+            <LinearLayout
+                android:id="@+id/course_intro_overlay"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="20dp"
+                android:visibility="gone">
+
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardBackgroundColor="#F8FAFC"
+                    app:cardCornerRadius="20dp"
+                    app:strokeColor="#E2E8F0"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="20dp">
+
+                        <TextView
+                            android:id="@+id/tv_course_stage"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="#DBEAFE"
+                            android:paddingStart="12dp"
+                            android:paddingTop="6dp"
+                            android:paddingEnd="12dp"
+                            android:paddingBottom="6dp"
+                            android:text="コースリスニング入力"
+                            android:textColor="#1D4ED8"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tv_course_intro_en"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:textColor="#0F172A"
+                            android:textSize="24sp"
+                            android:textStyle="bold"
+                            tools:text="There are three people in my family." />
+
+                        <TextView
+                            android:id="@+id/tv_course_intro_cn"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:textColor="#475569"
+                            android:textSize="18sp"
+                            tools:text="私の家族は3人です。" />
+
+                        <TextView
+                            android:id="@+id/tv_course_intro_progress"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:textColor="#64748B"
+                            android:textSize="13sp"
+                            tools:text="1 / 7" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:gravity="end"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_course_intro_replay"
+                                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="もう一度聞く"
+                                android:textColor="#1D4ED8"
+                                app:strokeColor="#1D4ED8" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_course_intro_skip"
+                                style="@style/Widget.MaterialComponents.Button"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="10dp"
+                                android:text="スキップ"
+                                android:textColor="#FFFFFF"
+                                app:backgroundTint="#1D4ED8" />
+
+                        </LinearLayout>
+
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+        </FrameLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/action_cluster"
+        android:layout_width="0dp"
+        android:layout_height="220dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginBottom="22dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <androidx.constraintlayout.widget.Guideline
+            android:id="@+id/g_col_1"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            app:layout_constraintGuide_percent="0.25" />
+
+        <androidx.constraintlayout.widget.Guideline
+            android:id="@+id/g_col_2"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            app:layout_constraintGuide_percent="0.50" />
+
+        <androidx.constraintlayout.widget.Guideline
+            android:id="@+id/g_col_3"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            app:layout_constraintGuide_percent="0.75" />
+
+        <androidx.constraintlayout.widget.Guideline
+            android:id="@+id/g_row_1"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            app:layout_constraintGuide_percent="0.50" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/btn_call_toggle"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_margin="6dp"
+            android:clickable="true"
+            android:focusable="true"
+            app:cardBackgroundColor="@color/kids_call_button"
+            app:cardCornerRadius="62dp"
+            app:cardUseCompatPadding="true"
+            app:layout_constraintStart_toStartOf="@+id/g_col_1"
+            app:layout_constraintEnd_toStartOf="@+id/g_col_3"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintDimensionRatio="1:1">
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+
+                <ImageView
+                    android:id="@+id/iv_call_mic"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_phone_outline"
+                    android:tint="@color/kids_call_button_on" />
+
+            </FrameLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_play_video"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="84dp"
+            android:layout_height="84dp"
+            android:layout_margin="6dp"
+            android:includeFontPadding="false"
+            android:text="動画"
+            android:textColor="@color/kids_hint"
+            android:textSize="12sp"
+            app:icon="@drawable/ic_video_outline"
+            app:iconGravity="textTop"
+            app:iconPadding="2dp"
+            app:iconSize="28dp"
+            app:iconTint="@color/kids_hint"
+            app:strokeColor="@android:color/transparent"
+            app:strokeWidth="0dp"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/g_col_1"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toTopOf="@+id/g_row_1" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_quick_difficulty"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="84dp"
+            android:layout_height="84dp"
+            android:layout_margin="6dp"
+            android:includeFontPadding="false"
+            android:text="モード選択"
+            android:textColor="@color/kids_hint"
+            android:textSize="12sp"
+            app:icon="@drawable/ic_difficult_outline"
+            app:iconGravity="textTop"
+            app:iconPadding="2dp"
+            app:iconSize="28dp"
+            app:iconTint="@color/kids_hint"
+            app:strokeColor="@android:color/transparent"
+            app:strokeWidth="0dp"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/g_col_1"
+            app:layout_constraintTop_toBottomOf="@+id/g_row_1"
+            app:layout_constraintBottom_toBottomOf="parent" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_quick_course"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="84dp"
+            android:layout_height="84dp"
+            android:layout_margin="6dp"
+            android:includeFontPadding="false"
+            android:text="コース"
+            android:textColor="@color/kids_hint"
+            android:textSize="12sp"
+            app:icon="@drawable/ic_chapter_outline"
+            app:iconGravity="textTop"
+            app:iconPadding="2dp"
+            app:iconSize="28dp"
+            app:iconTint="@color/kids_hint"
+            app:strokeColor="@android:color/transparent"
+            app:strokeWidth="0dp"
+            app:layout_constraintStart_toStartOf="@+id/g_col_3"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toTopOf="@+id/g_row_1" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_quick_plus"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="84dp"
+            android:layout_height="84dp"
+            android:layout_margin="6dp"
+            android:includeFontPadding="false"
+            android:text="英語スピーク"
+            android:textColor="@color/kids_hint"
+            android:textSize="12sp"
+            app:icon="@drawable/ic_book"
+            app:iconGravity="textTop"
+            app:iconPadding="2dp"
+            app:iconSize="28dp"
+            app:iconTint="@color/kids_hint"
+            app:strokeColor="@android:color/transparent"
+            app:strokeWidth="0dp"
+            app:layout_constraintStart_toStartOf="@+id/g_col_3"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/g_row_1"
+            app:layout_constraintBottom_toBottomOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

@@ -7,6 +7,10 @@ allprojects {
         google()
         mavenCentral()
         maven {
+            url = uri("https://jitpack.io")
+            content { includeGroup("com.github.PhilJay") }
+        }
+        maven {
             url = uri("https://artifact.bytedance.com/repository/Volcengine/")
             content {
                 includeGroup("com.volcengine")

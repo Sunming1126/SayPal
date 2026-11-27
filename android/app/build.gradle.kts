@@ -97,3 +97,7 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation(project(":oral_practice"))
+}

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/kids_background"
+    android:padding="16dp">
+
+    <!-- Page title -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/practice_page1_title"
+        android:textSize="16sp"
+        android:textColor="@color/kids_primary"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:layout_marginBottom="12dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/practice_page1_subtitle"
+        android:textSize="13sp"
+        android:textColor="@color/kids_hint"
+        android:gravity="center"
+        android:layout_marginBottom="16dp" />
+
+    <!-- Sentence list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_cn_sentences"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="8dp" />
+
+</LinearLayout>

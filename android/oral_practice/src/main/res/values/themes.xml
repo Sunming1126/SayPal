@@ -1,0 +1,116 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme. -->
+    <style name="Base.Theme.MyApplication" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Customize your light theme here. -->
+        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+    </style>
+
+    <style name="Theme.MyApplication" parent="Base.Theme.MyApplication" />
+
+    <style name="Base.Theme.MyApplication.Kids" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/kids_primary</item>
+        <item name="colorOnPrimary">@color/kids_on_primary</item>
+        <item name="colorSecondary">@color/kids_secondary</item>
+        <item name="colorOnSecondary">@color/kids_on_secondary</item>
+        <item name="colorTertiary">@color/kids_tertiary</item>
+        <item name="colorOnTertiary">@color/kids_on_tertiary</item>
+
+        <item name="android:colorBackground">@color/kids_background</item>
+        <item name="colorSurface">@color/kids_surface</item>
+
+        <item name="android:windowBackground">@color/kids_background</item>
+
+        <item name="android:statusBarColor">@color/kids_toolbar_bg</item>
+        <item name="android:navigationBarColor">@color/kids_surface</item>
+
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+
+        <item name="materialButtonStyle">@style/Widget.MyApplication.Kids.Button</item>
+        <item name="materialButtonOutlinedStyle">@style/Widget.MyApplication.Kids.Button.Outlined</item>
+        <item name="textInputStyle">@style/Widget.MyApplication.Kids.TextInputLayout</item>
+        <item name="textInputOutlinedStyle">@style/Widget.MyApplication.Kids.TextInputLayout</item>
+        <item name="materialCardViewStyle">@style/Widget.MyApplication.Kids.Card</item>
+
+        <item name="popupMenuStyle">@style/Widget.MyApplication.Kids.PopupMenu</item>
+        <item name="dropDownListViewStyle">@style/Widget.MyApplication.Kids.DropDownListView</item>
+        <item name="listMenuViewStyle">@style/Widget.MyApplication.Kids.ListMenuView</item>
+
+        <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Material3.Corner.Medium</item>
+        <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Material3.Corner.Large</item>
+        <item name="shapeAppearanceLargeComponent">@style/ShapeAppearance.Material3.Corner.ExtraLarge</item>
+    </style>
+
+    <style name="Theme.MyApplication.Kids" parent="Base.Theme.MyApplication.Kids" />
+
+    <style name="Widget.MyApplication.Kids.Button" parent="Widget.MaterialComponents.Button">
+        <item name="android:textAllCaps">false</item>
+        <item name="android:minHeight">52dp</item>
+        <item name="cornerRadius">14dp</item>
+        <item name="android:textColor">@color/kids_on_primary</item>
+        <item name="backgroundTint">@color/kids_primary</item>
+    </style>
+
+    <style name="Widget.MyApplication.Kids.Button.Outlined" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:textAllCaps">false</item>
+        <item name="android:minHeight">52dp</item>
+        <item name="cornerRadius">18dp</item>
+        <item name="android:textColor">@color/kids_hint</item>
+        <item name="iconTint">@color/kids_hint</item>
+        <item name="backgroundTint">@android:color/transparent</item>
+        <item name="strokeColor">@android:color/transparent</item>
+        <item name="strokeWidth">0dp</item>
+    </style>
+
+    <style name="Widget.MyApplication.Kids.TextInputLayout" parent="Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+        <item name="boxStrokeColor">@color/kids_divider</item>
+        <item name="hintTextColor">@color/kids_hint</item>
+        <item name="boxBackgroundColor">@color/kids_surface</item>
+        <item name="boxStrokeWidth">1dp</item>
+        <item name="boxStrokeWidthFocused">1dp</item>
+        <item name="boxCornerRadiusTopStart">14dp</item>
+        <item name="boxCornerRadiusTopEnd">14dp</item>
+        <item name="boxCornerRadiusBottomStart">14dp</item>
+        <item name="boxCornerRadiusBottomEnd">14dp</item>
+    </style>
+
+    <style name="Widget.MyApplication.Kids.Card" parent="Widget.MaterialComponents.CardView">
+        <item name="cardCornerRadius">18dp</item>
+        <item name="cardBackgroundColor">@color/kids_surface</item>
+        <item name="strokeColor">@color/kids_divider</item>
+        <item name="strokeWidth">0dp</item>
+        <item name="cardUseCompatPadding">true</item>
+    </style>
+
+    <style name="Widget.MyApplication.Kids.PopupMenu" parent="Widget.MaterialComponents.PopupMenu">
+        <item name="android:dropDownListViewStyle">@style/Widget.MyApplication.Kids.DropDownListView</item>
+        <item name="android:popupBackground">@drawable/bg_popup_menu_ios</item>
+    </style>
+
+    <style name="ThemeOverlay.MyApplication.Kids.ToolbarPopup" parent="ThemeOverlay.Material3">
+        <item name="popupMenuStyle">@style/Widget.MyApplication.Kids.PopupMenu</item>
+        <item name="android:popupBackground">@drawable/bg_popup_menu_ios</item>
+        <item name="dropDownListViewStyle">@style/Widget.MyApplication.Kids.DropDownListView</item>
+        <item name="listMenuViewStyle">@style/Widget.MyApplication.Kids.ListMenuView</item>
+    </style>
+
+    <style name="Widget.MyApplication.Kids.DropDownListView" parent="Widget.AppCompat.ListView.DropDown">
+        <item name="android:listPreferredItemPaddingLeft">18dp</item>
+        <item name="android:listPreferredItemPaddingRight">18dp</item>
+        <item name="android:divider">@null</item>
+        <item name="android:dividerHeight">0dp</item>
+        <item name="android:listSelector">@drawable/bg_popup_menu_item_ios</item>
+    </style>
+
+    <style name="Widget.MyApplication.Kids.ListMenuView" parent="Widget.AppCompat.ListView.Menu">
+        <item name="android:listPreferredItemPaddingLeft">18dp</item>
+        <item name="android:listPreferredItemPaddingRight">18dp</item>
+        <item name="android:listSelector">@drawable/bg_popup_menu_item_ios</item>
+    </style>
+
+    <style name="Widget.MyApplication.Kids.Toolbar" parent="Widget.MaterialComponents.Toolbar">
+        <item name="android:background">@color/kids_primary</item>
+        <item name="titleTextColor">@color/kids_on_primary</item>
+        <item name="subtitleTextColor">@color/kids_on_primary</item>
+    </style>
+</resources>

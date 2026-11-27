@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/kids_background">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Top bar -->
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/kids_primary"
+            app:navigationIcon="@drawable/ic_back"
+            app:navigationIconTint="@color/white"
+            app:title="@string/english_practice"
+            app:titleTextColor="@color/white" />
+
+        <!-- Tab indicator -->
+        <com.google.android.material.tabs.TabLayout
+            android:id="@+id/tab_layout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/white"
+            app:tabMode="fixed"
+            app:tabGravity="fill"
+            app:tabIndicatorColor="@color/kids_primary"
+            app:tabSelectedTextColor="@color/kids_primary"
+            app:tabTextColor="@color/kids_hint" />
+
+        <!-- ViewPager for the two pages -->
+        <androidx.viewpager2.widget.ViewPager2
+            android:id="@+id/view_pager"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- Recording control panel (fixed at bottom) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/recording_panel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="12dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="4dp"
+            app:cardBackgroundColor="@color/white">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <!-- Status text -->
+                <TextView
+                    android:id="@+id/tv_recording_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="@string/recording_tap_to_start"
+                    android:textColor="@color/kids_on_background"
+                    android:textSize="15sp"
+                    android:layout_marginBottom="12dp" />
+
+                <!-- Main record button -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center">
+
+                    <!-- Re-record button (only visible after recording) -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_rerecord"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/rerecord"
+                        android:textSize="13sp"
+                        android:visibility="gone"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_marginEnd="12dp" />
+
+                    <!-- Record / Stop button -->
+                    <com.google.android.material.floatingactionbutton.FloatingActionButton
+                        android:id="@+id/fab_record"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:src="@drawable/ic_mic"
+                        app:tint="@color/white"
+                        app:backgroundTint="@color/kids_call_button"
+                        android:contentDescription="@string/start_recording" />
+
+                    <!-- Play recording button (only visible after recording) -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_play"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/play"
+                        android:textSize="13sp"
+                        android:visibility="gone"
+                        android:layout_marginStart="12dp" />
+
+                </LinearLayout>
+
+                <!-- Recording progress bar -->
+                <ProgressBar
+                    android:id="@+id/progress_recording"
+                    style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:layout_marginTop="12dp"
+                    android:progressTint="@color/kids_primary"
+                    android:progressBackgroundTint="@color/kids_divider"
+                    android:max="100"
+                    android:progress="0"
+                    android:visibility="gone" />
+
+                <!-- Divider -->
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="12dp"
+                    android:background="@color/kids_divider" />
+
+                <!-- BGM volume row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="10dp">
+
+                    <!-- Music icon + label -->
+                    <ImageView
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:src="@drawable/ic_music"
+                        app:tint="@color/kids_hint"
+                        android:contentDescription="BGM" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="BGM"
+                        android:textColor="@color/kids_hint"
+                        android:textSize="12sp"
+                        android:layout_marginStart="6dp"
+                        android:layout_marginEnd="12dp" />
+
+                    <!-- Volume SeekBar -->
+                    <SeekBar
+                        android:id="@+id/sb_bgm_volume"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:max="100"
+                        android:progress="16"
+                        android:progressTint="@color/kids_primary"
+                        android:thumbTint="@color/kids_primary" />
+
+                    <!-- Volume percentage -->
+                    <TextView
+                        android:id="@+id/tv_bgm_volume"
+                        android:layout_width="40dp"
+                        android:layout_height="wrap_content"
+                        android:text="16%"
+                        android:textColor="@color/kids_hint"
+                        android:textSize="12sp"
+                        android:gravity="end" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+    </LinearLayout>
+
+    <!-- Loading overlay -->
+    <FrameLayout
+        android:id="@+id/loading_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#80FFFFFF"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:indeterminateTint="@color/kids_primary" />
+
+    </FrameLayout>
+
+</FrameLayout>

@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+
+    <application>
+        <activity android:name=".LoginActivity" android:exported="false" android:process=":oral_practice" android:theme="@style/Theme.MyApplication.Kids" />
+        <activity android:name=".HomeActivity" android:exported="false" android:process=":oral_practice" android:theme="@style/Theme.MyApplication.Kids" />
+        <activity android:name=".TrainingSelectActivity" android:exported="false" android:process=":oral_practice" android:theme="@style/Theme.MyApplication.Kids" />
+        <activity android:name=".CourseDetailActivity" android:exported="false" android:process=":oral_practice" android:theme="@style/Theme.MyApplication.Kids" />
+        <activity android:name=".MainActivity" android:exported="false" android:process=":oral_practice" android:theme="@style/Theme.MyApplication.Kids" android:configChanges="orientation|screenSize|keyboardHidden" />
+        <activity android:name=".VideoPlayerActivity" android:exported="false" android:process=":oral_practice" android:theme="@style/Theme.MyApplication.Kids" />
+        <activity android:name=".HistoryActivity" android:exported="false" android:process=":oral_practice" android:theme="@style/Theme.MyApplication.Kids" />
+        <activity android:name=".ProfileActivity" android:exported="false" android:process=":oral_practice" android:theme="@style/Theme.MyApplication.Kids" />
+        <activity android:name=".SettingsActivity" android:exported="false" android:process=":oral_practice" android:theme="@style/Theme.MyApplication.Kids" />
+        <activity android:name=".DifficultyActivity" android:exported="false" android:process=":oral_practice" android:theme="@style/Theme.MyApplication.Kids" />
+        <activity android:name=".RegisterActivity" android:exported="false" android:process=":oral_practice" android:theme="@style/Theme.MyApplication.Kids" />
+        <activity android:name=".EnglishPracticeActivity" android:exported="false" android:process=":oral_practice" android:theme="@style/Theme.MyApplication.Kids" />
+    </application>
+</manifest>

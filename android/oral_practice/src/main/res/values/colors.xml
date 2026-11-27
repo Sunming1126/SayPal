@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- Neutral & bright palette (Material 3 friendly) -->
+    <color name="kids_primary">#FFF58E7C</color>
+    <color name="kids_on_primary">#FFFFFFFF</color>
+
+    <!-- Call button color (vibrant green) -->
+    <color name="kids_call_button">#FF34C759</color>
+    <color name="kids_call_button_on">#FFFFFFFF</color>
+
+    <!-- Used as user chat bubble color -->
+    <color name="kids_secondary">#FFF8A08B</color>
+    <color name="kids_on_secondary">#FFFFFFFF</color>
+
+    <color name="kids_tertiary">#FF908F9D</color>
+    <color name="kids_on_tertiary">#FFFFFFFF</color>
+
+    <color name="kids_background">#FFF6F6F8</color>
+    <color name="kids_surface">#FFFFFFFF</color>
+    <color name="kids_on_background">#FF2F2E3A</color>
+    <color name="kids_on_surface">#FF2F2E3A</color>
+
+    <color name="kids_hint">#FF908F9D</color>
+    <color name="kids_divider">#FFE8E8EC</color>
+
+    <color name="kids_toolbar_bg">#FFF6F6F8</color>
+
+    <color name="kids_danger">#FFFF3B30</color>
+    <color name="kids_bubble_left">#FFE9E9EE</color>
+</resources>

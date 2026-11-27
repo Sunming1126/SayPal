@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:layout_marginStart="8dp"
+    android:layout_marginEnd="8dp"
+    android:layout_marginTop="6dp"
+    android:layout_marginBottom="6dp"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="14dp"
+    android:paddingBottom="14dp"
+    android:minHeight="54dp"
+    android:background="@drawable/bg_course_row">
+
+    <TextView
+        android:id="@+id/tv_row"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:lineSpacingExtra="2dp"
+        android:textColor="@color/kids_on_background"
+        android:textSize="15sp"
+        android:fontFamily="sans-serif" />
+
+    <TextView
+        android:id="@+id/tv_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:text="動画"
+        android:textSize="12sp"
+        android:textColor="#FFFFFF"
+        android:background="@drawable/bg_badge_video"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/tv_more"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="8dp"
+        android:gravity="center"
+        android:text="⋮"
+        android:textSize="20sp"
+        android:textColor="@color/kids_hint"
+        android:clickable="true"
+        android:focusable="true" />
+
+</LinearLayout>

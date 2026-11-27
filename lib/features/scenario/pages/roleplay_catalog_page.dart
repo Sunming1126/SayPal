@@ -11,6 +11,7 @@ import '../data/video_roleplay_lessons.dart';
 import '../models/practice_catalog.dart';
 import '../providers/practice_providers.dart';
 import '../widgets/roleplay_artwork.dart';
+import 'oral_practice_entry_page.dart';
 
 class RoleplayCatalogPage extends ConsumerWidget {
   const RoleplayCatalogPage({super.key});
@@ -18,7 +19,9 @@ class RoleplayCatalogPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Load the small course catalog while the main scenario page is open.
-    ref.listen(videoRoleplayLessonsProvider, (_, _) {});
+    if (!hasNativeOralPractice) {
+      ref.listen(videoRoleplayLessonsProvider, (_, _) {});
+    }
     final AsyncValue<RoleplayCatalog> value =
         ref.watch(roleplayCollectionProvider);
     final Set<String> favorites =
@@ -204,8 +207,10 @@ class _CatalogBody extends StatelessWidget {
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
               leading: const Icon(Icons.ondemand_video_rounded),
-              title: const Text('视频情景陪练'),
-              subtitle: const Text('看完教学视频，和 AI 练习同一个场景'),
+              title: Text(hasNativeOralPractice ? '视频电话陪练' : '视频情景陪练'),
+              subtitle: Text(hasNativeOralPractice
+                  ? '选课看视频，然后和 AI 语音通话'
+                  : '看完教学视频，和 AI 练习同一个场景'),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => context.push('/scenario/video-practice'),
             ),
