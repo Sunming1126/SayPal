@@ -14,6 +14,7 @@ import '../../features/learning/pages/theme_course_page.dart';
 import '../../features/membership/pages/membership_page.dart';
 import '../../features/profile/pages/profile_page.dart';
 import '../../features/scenario/data/seed_scenarios.dart';
+import '../../features/scenario/data/video_roleplay_lessons.dart';
 import '../../features/scenario/models/scenario_models.dart';
 import '../../features/scenario/pages/scenario_intro_page.dart';
 import '../../features/scenario/pages/scenario_session_page.dart';
@@ -21,6 +22,7 @@ import '../../features/scenario/pages/custom_roleplay_page.dart';
 import '../../features/scenario/pages/roleplay_catalog_page.dart';
 import '../../features/scenario/pages/roleplay_collection_page.dart';
 import '../../features/scenario/pages/roleplay_session_page.dart';
+import '../../features/scenario/pages/video_roleplay_page.dart';
 import '../../features/statistics/pages/statistics_page.dart';
 import '../../features/vocabulary/pages/vocabulary_page.dart';
 
@@ -85,6 +87,27 @@ GoRouter buildAppRouter(Ref ref) {
         parentNavigatorKey: rootNavigatorKey,
         builder: (BuildContext context, GoRouterState state) =>
             const LearningMapPage(),
+      ),
+      GoRoute(
+        path: '/scenario/video-practice',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => const VideoRoleplayCatalogPage(),
+        routes: [
+          GoRoute(
+            path: ':lessonId',
+            redirect: (context, state) => videoRoleplayLessons.any(
+              (lesson) => lesson.id == state.pathParameters['lessonId'],
+            )
+                ? null
+                : '/scenario/video-practice',
+            builder: (context, state) => VideoRoleplayPage(
+              key: state.pageKey,
+              lesson: videoRoleplayLessons.firstWhere(
+                (lesson) => lesson.id == state.pathParameters['lessonId'],
+              ),
+            ),
+          ),
+        ],
       ),
       GoRoute(
         path: '/scenario/roleplay',

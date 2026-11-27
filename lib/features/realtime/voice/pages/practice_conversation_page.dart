@@ -24,6 +24,7 @@ class PracticeConversationPage extends ConsumerStatefulWidget {
     required this.finishedLabel,
     this.nextRoute,
     this.onCompleted,
+    this.showFavorite = true,
     super.key,
   });
 
@@ -33,6 +34,7 @@ class PracticeConversationPage extends ConsumerStatefulWidget {
   final String finishedLabel;
   final String? nextRoute;
   final Future<void> Function()? onCompleted;
+  final bool showFavorite;
 
   @override
   ConsumerState<PracticeConversationPage> createState() =>
@@ -400,23 +402,25 @@ class _PracticeConversationPageState
                           '目标 ${state.completedObjectives}/${widget.objectives.length}',
                       onTap: () => _showGoals(state),
                     ),
-                    const SizedBox(width: 10),
-                    _GlassPill(
-                      key: const ValueKey<String>('roleplay-favorite-button'),
-                      icon: custom || favorite
-                          ? Icons.bookmark_rounded
-                          : Icons.bookmark_border_rounded,
-                      label: custom
-                          ? '已保存'
-                          : favorite
-                              ? '已收藏'
-                              : '收藏',
-                      onTap: custom || widget.context.catalogId == null
-                          ? null
-                          : () => ref
-                              .read(roleplayFavoritesProvider.notifier)
-                              .toggle(widget.context.catalogId!),
-                    ),
+                    if (widget.showFavorite) ...[
+                      const SizedBox(width: 10),
+                      _GlassPill(
+                        key: const ValueKey<String>('roleplay-favorite-button'),
+                        icon: custom || favorite
+                            ? Icons.bookmark_rounded
+                            : Icons.bookmark_border_rounded,
+                        label: custom
+                            ? '已保存'
+                            : favorite
+                                ? '已收藏'
+                                : '收藏',
+                        onTap: custom || widget.context.catalogId == null
+                            ? null
+                            : () => ref
+                                .read(roleplayFavoritesProvider.notifier)
+                                .toggle(widget.context.catalogId!),
+                      ),
+                    ],
                   ],
                 ),
               ),

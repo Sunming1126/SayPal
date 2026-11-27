@@ -7,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/common_widgets.dart';
 import '../../statistics/models/learning_stats.dart';
 import '../../statistics/providers/statistics_providers.dart';
+import '../data/video_roleplay_lessons.dart';
 import '../models/practice_catalog.dart';
 import '../providers/practice_providers.dart';
 import '../widgets/roleplay_artwork.dart';
@@ -71,6 +72,9 @@ class RoleplayCatalogPage extends ConsumerWidget {
       for (final CustomSceneDraft item in drafts) item.id: item,
     };
     final Set<String> seen = <String>{};
+    final videos = {
+      for (final lesson in videoRoleplayLessons) lesson.catalogId: lesson,
+    };
     final List<_HistoryItem> history = records.reversed
         .where((SessionLearningRecord item) =>
             item.feature == '情景扮演' &&
@@ -79,11 +83,17 @@ class RoleplayCatalogPage extends ConsumerWidget {
         .map((SessionLearningRecord item) {
           final RoleplayScenario? scenario = official[item.contentId];
           final CustomSceneDraft? draft = custom[item.contentId];
+          final video = videos[item.contentId];
           return _HistoryItem(
-            id: item.contentId!,
-            title: scenario?.title ?? draft?.title ?? '已完成的情景',
-            subtitle: scenario?.situation ?? draft?.situation ?? '情景练习',
-            official: scenario != null,
+            title: video?.title ?? scenario?.title ?? draft?.title ?? '已完成的情景',
+            subtitle: video?.englishTitle ??
+                scenario?.situation ??
+                draft?.situation ??
+                '情景练习',
+            route: video?.route ??
+                (scenario != null
+                    ? '/scenario/roleplay/${scenario.id}'
+                    : '/scenario/roleplay/custom/saved'),
           );
         })
         .take(8)
@@ -96,9 +106,7 @@ class RoleplayCatalogPage extends ConsumerWidget {
         items: history,
         onOpen: (_HistoryItem item) {
           Navigator.of(sheetContext).pop();
-          context.push(item.official
-              ? '/scenario/roleplay/${item.id}'
-              : '/scenario/roleplay/custom/saved');
+          context.push(item.route);
         },
       ),
     );
@@ -182,6 +190,21 @@ class _CatalogBody extends StatelessWidget {
       key: const PageStorageKey<String>('roleplay-catalog-list'),
       padding: const EdgeInsets.only(bottom: 132),
       children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Card(
+            margin: EdgeInsets.zero,
+            child: ListTile(
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+              leading: const Icon(Icons.ondemand_video_rounded),
+              title: const Text('视频情景陪练'),
+              subtitle: const Text('看完教学视频，和 AI 练习同一个场景'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => context.push('/scenario/video-practice'),
+            ),
+          ),
+        ),
         _SectionHeader(
           title: '为你推荐',
           action: '查看全部',
@@ -442,14 +465,12 @@ class _CustomSceneEntry extends StatelessWidget {
 
 class _HistoryItem {
   const _HistoryItem({
-    required this.id,
     required this.title,
     required this.subtitle,
-    required this.official,
+    required this.route,
   });
 
-  final String id, title, subtitle;
-  final bool official;
+  final String title, subtitle, route;
 }
 
 class _HistorySheet extends StatelessWidget {
