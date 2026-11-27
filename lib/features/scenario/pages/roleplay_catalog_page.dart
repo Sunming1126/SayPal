@@ -17,6 +17,8 @@ class RoleplayCatalogPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Load the small course catalog while the main scenario page is open.
+    ref.listen(videoRoleplayLessonsProvider, (_, _) {});
     final AsyncValue<RoleplayCatalog> value =
         ref.watch(roleplayCollectionProvider);
     final Set<String> favorites =

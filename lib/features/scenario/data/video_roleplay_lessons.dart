@@ -1,18 +1,19 @@
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../../realtime/voice/conversation_context.dart';
 
-final _mediaBase = Uri.parse(
-  const String.fromEnvironment(
-    'SAYPAL_VIDEO_PRACTICE_URL',
-    defaultValue: 'https://onesay.top/saypal/video-practice/v1/',
-  ),
+const _defaultMediaBase = 'https://onesay.top/saypal/video-practice/v2/';
+const _mediaBaseUrl = String.fromEnvironment(
+  'SAYPAL_VIDEO_PRACTICE_URL',
+  defaultValue: _defaultMediaBase,
 );
+final _mediaBase = Uri.parse(_mediaBaseUrl);
 
-final videoRoleplayLessonsProvider = FutureProvider<List<VideoRoleplayLesson>>((
+final _onlineCatalogProvider = FutureProvider<List<VideoRoleplayLesson>>((
   ref,
 ) async {
   final client = http.Client();
@@ -23,7 +24,33 @@ final videoRoleplayLessonsProvider = FutureProvider<List<VideoRoleplayLesson>>((
   if (response.statusCode != 200) {
     throw StateError('Video lesson catalog unavailable');
   }
-  final rows = jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
+  return _decodeCatalog(utf8.decode(response.bodyBytes));
+});
+
+final _bundledCatalogProvider = FutureProvider<List<VideoRoleplayLesson>>((
+  ref,
+) async {
+  final json = await rootBundle.loadString(
+    'assets/content/video_roleplay_catalog.json',
+  );
+  return _decodeCatalog(json);
+});
+
+final videoRoleplayLessonsProvider =
+    Provider<AsyncValue<List<VideoRoleplayLesson>>>((ref) {
+      final online = ref.watch(_onlineCatalogProvider);
+      if (_mediaBaseUrl != _defaultMediaBase || online.hasValue) return online;
+      final bundled = ref.watch(_bundledCatalogProvider);
+      return bundled.hasValue || bundled.isLoading ? bundled : online;
+    });
+
+void reloadVideoRoleplayLessons(WidgetRef ref) {
+  ref.invalidate(_onlineCatalogProvider);
+  ref.invalidate(_bundledCatalogProvider);
+}
+
+List<VideoRoleplayLesson> _decodeCatalog(String json) {
+  final rows = jsonDecode(json) as List<dynamic>;
   final lessons = rows
       .map((row) {
         return VideoRoleplayLesson.fromJson(row as Map<String, dynamic>);
@@ -34,7 +61,7 @@ final videoRoleplayLessonsProvider = FutureProvider<List<VideoRoleplayLesson>>((
     throw const FormatException('Invalid video lesson catalog');
   }
   return lessons;
-});
+}
 
 class VideoRoleplayLesson {
   const VideoRoleplayLesson({

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -113,7 +114,7 @@ class _VideoCatalogScaffold extends ConsumerWidget {
           error: (_, _) => ErrorStateView(
             title: '暂时无法加载视频课',
             message: '请检查网络后重试。',
-            onRetry: () => ref.invalidate(videoRoleplayLessonsProvider),
+            onRetry: () => reloadVideoRoleplayLessons(ref),
           ),
         ),
   );
@@ -137,16 +138,25 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
   bool _preparing = false;
   bool _practicing = false;
   bool _foreground = true;
+  Stopwatch? _playbackClock;
+  int _bufferingCount = 0;
+  bool _loggedPlaybackStart = false;
+  bool _wasBuffering = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(_loadVideo());
   }
 
   Future<void> _loadVideo() async {
     _disposePlayer();
+    if (kDebugMode) {
+      _playbackClock = Stopwatch()..start();
+      _bufferingCount = 0;
+      _loggedPlaybackStart = false;
+      _wasBuffering = false;
+    }
     final player = VideoPlayerController.networkUrl(widget.lesson.videoUri);
     _player = player;
     setState(() => _videoError = false);
@@ -155,6 +165,7 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
       if (!mounted || !identical(_player, player)) return;
       player.addListener(_onVideoChanged);
       setState(() {});
+      if (_foreground) await player.play();
     } catch (_) {
       if (mounted && identical(_player, player)) {
         setState(() => _videoError = true);
@@ -164,10 +175,13 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
 
   void _onVideoChanged() {
     final value = _player!.value;
+    if (kDebugMode) _logPlayback(value);
     if (value.isCompleted && !_watched) {
       setState(() => _watched = true);
     }
-    if (!_foreground || _preparing || value.hasError) return;
+    if (!_foreground || _preparing || value.hasError || value.isBuffering) {
+      return;
+    }
     if (value.isCompleted ||
         (value.isPlaying &&
             value.position > Duration.zero &&
@@ -175,6 +189,26 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
       _preparing = true;
       unawaited(
         ref.read(voiceConversationProvider(_context).notifier).connect(),
+      );
+    }
+  }
+
+  void _logPlayback(VideoPlayerValue value) {
+    if (!_loggedPlaybackStart && value.position > Duration.zero) {
+      _loggedPlaybackStart = true;
+      debugPrint(
+        'SayPal video ${widget.lesson.id}: playing '
+        '+${_playbackClock?.elapsedMilliseconds}ms',
+      );
+    }
+    if (_loggedPlaybackStart && value.isBuffering && !_wasBuffering) {
+      _bufferingCount++;
+    }
+    _wasBuffering = value.isBuffering;
+    if (value.isCompleted && !_watched) {
+      debugPrint(
+        'SayPal video ${widget.lesson.id}: completed '
+        '${value.duration.inMilliseconds}ms, $_bufferingCount buffering events',
       );
     }
   }
@@ -256,8 +290,14 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
           children: [
             Expanded(
               child: Center(
-                child: _videoError || player == null
+                child: _videoError
                     ? _playbackError()
+                    : player == null
+                    ? FilledButton.tonalIcon(
+                        onPressed: _loadVideo,
+                        icon: const Icon(Icons.play_circle_outline_rounded),
+                        label: const Text('播放教学视频'),
+                      )
                     : ValueListenableBuilder<VideoPlayerValue>(
                         valueListenable: player,
                         builder: (context, value, _) {
@@ -275,22 +315,31 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
                                   alignment: Alignment.center,
                                   children: [
                                     Positioned.fill(child: VideoPlayer(player)),
-                                    IconButton.filled(
-                                      tooltip: value.isPlaying
-                                          ? '暂停'
-                                          : value.isCompleted
-                                          ? '重播'
-                                          : '播放',
-                                      iconSize: 32,
-                                      onPressed: () => _togglePlayback(player),
-                                      icon: Icon(
-                                        value.isPlaying
-                                            ? Icons.pause_rounded
-                                            : value.isCompleted
-                                            ? Icons.replay_rounded
-                                            : Icons.play_arrow_rounded,
+                                    if (value.isBuffering)
+                                      const CircularProgressIndicator(
+                                        semanticsLabel: '正在缓冲视频',
                                       ),
-                                    ),
+                                    if (!value.isBuffering)
+                                      Positioned(
+                                        left: 8,
+                                        bottom: 12,
+                                        child: IconButton.filled(
+                                          tooltip: value.isPlaying
+                                              ? '暂停'
+                                              : value.isCompleted
+                                              ? '重播'
+                                              : '播放',
+                                          onPressed: () =>
+                                              _togglePlayback(player),
+                                          icon: Icon(
+                                            value.isPlaying
+                                                ? Icons.pause_rounded
+                                                : value.isCompleted
+                                                ? Icons.replay_rounded
+                                                : Icons.play_arrow_rounded,
+                                          ),
+                                        ),
+                                      ),
                                     Positioned(
                                       left: 0,
                                       right: 0,
@@ -314,9 +363,9 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
               child: SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: _watched ? _startPractice : null,
+                  onPressed: _startPractice,
                   icon: const Icon(Icons.record_voice_over_outlined),
-                  label: Text(_watched ? '开始 AI 陪练' : '看完视频后开始陪练'),
+                  label: Text(_watched ? '开始 AI 教学' : '跳过视频，开始 AI 教学'),
                 ),
               ),
             ),
