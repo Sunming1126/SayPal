@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../../realtime/voice/conversation_context.dart';
 
-const _defaultMediaBase = 'https://onesay.top/saypal/video-practice/v2/';
+const _defaultMediaBase = 'https://onesay.top/saypal/video-practice/v3/';
 const _mediaBaseUrl = String.fromEnvironment(
   'SAYPAL_VIDEO_PRACTICE_URL',
   defaultValue: _defaultMediaBase,
@@ -73,6 +73,7 @@ class VideoRoleplayLesson {
     required this.situation,
     required this.opening,
     required this.objectives,
+    this.hasOriginal = false,
   });
 
   factory VideoRoleplayLesson.fromJson(Map<String, dynamic> json) {
@@ -91,6 +92,7 @@ class VideoRoleplayLesson {
       situation: json['situation'] as String,
       opening: json['opening'] as String,
       objectives: objectives,
+      hasOriginal: json['hasOriginal'] == true,
     );
   }
 
@@ -102,8 +104,12 @@ class VideoRoleplayLesson {
   final String situation;
   final String opening;
   final List<String> objectives;
+  final bool hasOriginal;
 
   Uri get videoUri => _mediaBase.resolve('$id.mp4');
+  Uri get coverUri => _mediaBase.resolve('covers/$id.jpg');
+  Uri? get originalVideoUri =>
+      hasOriginal ? _mediaBase.resolve('original/$id.mp4') : null;
   String get catalogId => 'video-$id';
   String get route => '/scenario/video-practice/$id';
 

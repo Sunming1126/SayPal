@@ -138,6 +138,10 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
   bool _preparing = false;
   bool _practicing = false;
   bool _foreground = true;
+  bool _useOriginal = false;
+  bool _playRequested = false;
+  bool _queuedPreload = false;
+  Future<void>? _preloadFuture;
   Stopwatch? _playbackClock;
   int _bufferingCount = 0;
   bool _loggedPlaybackStart = false;
@@ -149,7 +153,10 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
     WidgetsBinding.instance.addObserver(this);
   }
 
-  Future<void> _loadVideo() async {
+  Future<void> _loadVideo({
+    Duration position = Duration.zero,
+    bool autoplay = true,
+  }) async {
     _disposePlayer();
     if (kDebugMode) {
       _playbackClock = Stopwatch()..start();
@@ -157,19 +164,61 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
       _loggedPlaybackStart = false;
       _wasBuffering = false;
     }
-    final player = VideoPlayerController.networkUrl(widget.lesson.videoUri);
+    final player = VideoPlayerController.networkUrl(
+      _useOriginal
+          ? widget.lesson.originalVideoUri ?? widget.lesson.videoUri
+          : widget.lesson.videoUri,
+    );
     _player = player;
     setState(() => _videoError = false);
     try {
-      await player.initialize().timeout(const Duration(seconds: 15));
+      await player.initialize().timeout(const Duration(seconds: 20));
+      if (!mounted || !identical(_player, player)) return;
+      if (position > Duration.zero) await player.seekTo(position);
       if (!mounted || !identical(_player, player)) return;
       player.addListener(_onVideoChanged);
       setState(() {});
-      if (_foreground) await player.play();
+      if (_foreground && autoplay) await player.play();
     } catch (_) {
       if (mounted && identical(_player, player)) {
         setState(() => _videoError = true);
       }
+    }
+  }
+
+  void _selectQuality(bool original) {
+    if (_useOriginal == original) return;
+    final value = _player?.value;
+    setState(() => _useOriginal = original);
+    if (value != null && !_videoError) {
+      _preloadFuture = _loadVideo(
+        position: value.position,
+        autoplay:
+            _playRequested &&
+            (!value.isInitialized || value.isPlaying || value.isBuffering),
+      );
+    }
+  }
+
+  void _preloadAfterCover() {
+    if (_queuedPreload) return;
+    _queuedPreload = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _foreground && !_practicing && _player == null) {
+        _preloadFuture = _loadVideo(autoplay: false);
+      }
+    });
+  }
+
+  Future<void> _playFromCover() async {
+    setState(() => _playRequested = true);
+    await _preloadFuture;
+    if (!mounted || _practicing || !_foreground) return;
+    final player = _player;
+    if (player == null || _videoError || player.value.hasError) {
+      await _loadVideo();
+    } else if (!player.value.isPlaying) {
+      await _togglePlayback(player);
     }
   }
 
@@ -284,26 +333,42 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
     ref.listen(voiceConversationProvider(_context), (_, _) {});
     final player = _player;
     return Scaffold(
-      appBar: AppBar(title: Text(widget.lesson.title)),
+      appBar: AppBar(
+        title: Text(widget.lesson.title),
+        actions: [
+          if (widget.lesson.hasOriginal)
+            PopupMenuButton<bool>(
+              tooltip: '选择清晰度',
+              initialValue: _useOriginal,
+              onSelected: _selectQuality,
+              itemBuilder: (context) => const [
+                PopupMenuItem(value: false, child: Text('原课默认清晰度')),
+                PopupMenuItem(value: true, child: Text('原画')),
+              ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Center(child: Text(_useOriginal ? '原画' : '清晰度')),
+              ),
+            ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           children: [
             Expanded(
               child: Center(
-                child: _videoError
+                child: !_playRequested
+                    ? _videoPreview()
+                    : _videoError
                     ? _playbackError()
                     : player == null
-                    ? FilledButton.tonalIcon(
-                        onPressed: _loadVideo,
-                        icon: const Icon(Icons.play_circle_outline_rounded),
-                        label: const Text('播放教学视频'),
-                      )
+                    ? _videoPreview()
                     : ValueListenableBuilder<VideoPlayerValue>(
                         valueListenable: player,
                         builder: (context, value, _) {
                           if (value.hasError) return _playbackError();
                           if (!value.isInitialized) {
-                            return const CircularProgressIndicator();
+                            return _videoPreview(loading: true);
                           }
                           return Padding(
                             padding: const EdgeInsets.all(12),
@@ -374,6 +439,48 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
       ),
     );
   }
+
+  Widget _videoPreview({bool loading = false}) => Padding(
+    padding: const EdgeInsets.all(12),
+    child: AspectRatio(
+      aspectRatio: 9 / 16,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: ColoredBox(
+          color: const Color(0xFF171C28),
+          child: Stack(
+            alignment: Alignment.center,
+            fit: StackFit.expand,
+            children: [
+              Image.network(
+                widget.lesson.coverUri.toString(),
+                fit: BoxFit.contain,
+                semanticLabel: '视频封面',
+                frameBuilder: (_, child, frame, _) {
+                  if (frame != null) _preloadAfterCover();
+                  return child;
+                },
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              ),
+              Center(
+                child: loading
+                    ? const CircularProgressIndicator(
+                        color: Colors.white,
+                        semanticsLabel: '正在加载视频',
+                      )
+                    : IconButton.filled(
+                        tooltip: '播放教学视频',
+                        iconSize: 42,
+                        onPressed: _playFromCover,
+                        icon: const Icon(Icons.play_arrow_rounded),
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 
   Widget _playbackError() => Column(
     mainAxisSize: MainAxisSize.min,
