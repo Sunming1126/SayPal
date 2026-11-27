@@ -1973,6 +1973,7 @@ public class MainActivity extends AppCompatActivity {
             payload.put("client_id", currentClientId);
             payload.put("session_id", currentSessionId);
             payload.put("task_id", currentTaskId);
+            payload.put("app_id", currentAppId);
             payload.put("difficulty", selectedDifficulty);
             payload.put("debug", true);
             payload.put("include_welcome_message", true);
@@ -4906,71 +4907,73 @@ public class MainActivity extends AppCompatActivity {
         currentClientId = cid;
     }
 
+    private long guestTokenExpiresAt;
+    private boolean guestBootstrapPending;
+
     private void ensureBootstrapThen(Runnable onOk) {
-        if (currentUserId != null && currentRoomId != null && currentUserRtcToken != null && currentAppId != null) {
+        if (currentUserId != null && currentRoomId != null && currentUserRtcToken != null
+                && currentAppId != null && guestTokenExpiresAt > System.currentTimeMillis() / 1000 + 30) {
             onOk.run();
             return;
         }
-
-        SharedPreferences sp = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String u = sp.getString(PREF_USERNAME, null);
-        if (u == null || u.trim().isEmpty()) {
-            runOnUiThread(() -> {
-                Toast.makeText(MainActivity.this, "请先登录", Toast.LENGTH_SHORT).show();
-                Intent it = new Intent(MainActivity.this, LoginActivity.class);
-                startActivity(it);
-                finish();
-            });
-            return;
-        }
-
-        String username = u.trim();
-        bootstrapFromBackend(username, onOk);
+        if (guestBootstrapPending) return;
+        bootstrapGuest(onOk);
     }
 
-    private void bootstrapFromBackend(String userId, Runnable onOk) {
+    private void bootstrapGuest(Runnable onOk) {
         try {
-            String url = AIConfigHelper.AGENT_API_BASE_URL + "/users/" + userId + "/bootstrap?client_id=" + currentClientId;
-            Request req = new Request.Builder().url(url).get().build();
+            JSONObject payload = new JSONObject().put("client_id", currentClientId);
+            RequestBody body = RequestBody.create(
+                    payload.toString(), MediaType.parse("application/json; charset=utf-8"));
+            Request req = new Request.Builder()
+                    .url(AIConfigHelper.AGENT_API_BASE_URL + "/guest/bootstrap")
+                    .post(body)
+                    .build();
+            guestBootstrapPending = true;
             httpClient.newCall(req).enqueue(new Callback() {
                 @Override
                 public void onFailure(@NonNull Call call, @NonNull IOException e) {
-                    Log.e(TAG, "bootstrap failed: " + e.getMessage());
-                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "bootstrap 失败：网络异常", Toast.LENGTH_LONG).show());
+                    runOnUiThread(() -> onGuestBootstrapFailed());
                 }
 
                 @Override
-                public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
-                    String resStr = response.body() != null ? response.body().string() : "";
-                    Log.d(TAG, "bootstrap HTTP " + response.code());
-                    if (!response.isSuccessful()) {
-                        runOnUiThread(() -> Toast.makeText(MainActivity.this, "bootstrap 失败：http=" + response.code(), Toast.LENGTH_LONG).show());
-                        return;
-                    }
-                    try {
-                        JSONObject obj = new JSONObject(resStr);
-                        currentUserId = obj.optString("user_id", userId);
-                        currentRoomId = obj.optString("room_id", null);
-                        currentUserRtcToken = obj.optString("user_rtc_token", null);
-                        currentAppId = obj.optString("app_id", null);
-                        if (currentUserId == null || currentRoomId == null || currentUserRtcToken == null || currentAppId == null) {
-                            runOnUiThread(() -> Toast.makeText(MainActivity.this, "bootstrap 数据不完整", Toast.LENGTH_LONG).show());
+                public void onResponse(@NonNull Call call, @NonNull Response response) {
+                    try (Response result = response) {
+                        if (!result.isSuccessful() || result.body() == null) {
+                            runOnUiThread(() -> onGuestBootstrapFailed());
                             return;
                         }
+                        JSONObject obj = new JSONObject(result.body().string());
+                        String userId = obj.getString("user_id");
+                        String roomId = obj.getString("room_id");
+                        String rtcToken = obj.getString("user_rtc_token");
+                        String appId = obj.getString("app_id");
+                        long expiresAt = obj.getLong("expires_at");
                         runOnUiThread(() -> {
-                            Toast.makeText(MainActivity.this, "已加载用户配置：" + currentUserId, Toast.LENGTH_SHORT).show();
+                            guestBootstrapPending = false;
+                            if (isFinishing() || isDestroyed()) return;
+                            currentUserId = userId;
+                            currentRoomId = roomId;
+                            currentUserRtcToken = rtcToken;
+                            currentAppId = appId;
+                            guestTokenExpiresAt = expiresAt;
                             onOk.run();
                         });
                     } catch (Exception e) {
-                        Log.e(TAG, "parse bootstrap json failed: " + e.getMessage());
-                        runOnUiThread(() -> Toast.makeText(MainActivity.this, "bootstrap 解析失败", Toast.LENGTH_LONG).show());
+                        runOnUiThread(() -> onGuestBootstrapFailed());
                     }
                 }
             });
         } catch (Exception e) {
-            Log.e(TAG, "bootstrap build failed: " + e.getMessage());
-            Toast.makeText(this, "bootstrap 构造失败", Toast.LENGTH_LONG).show();
+            onGuestBootstrapFailed();
         }
+    }
+
+    private void onGuestBootstrapFailed() {
+        guestBootstrapPending = false;
+        if (isFinishing() || isDestroyed()) return;
+        Toast.makeText(this, "暂时无法开始通话，请重试", Toast.LENGTH_LONG).show();
+        updateCallToggleUi();
     }
 
     private void ensureRtcEngineReady() {
@@ -5117,6 +5120,9 @@ public class MainActivity extends AppCompatActivity {
             JSONObject payload = new JSONObject();
             payload.put("user_id", currentUserId);
             payload.put("client_id", currentClientId);
+            payload.put("room_id", currentRoomId);
+            payload.put("app_id", currentAppId);
+            payload.put("user_rtc_token", currentUserRtcToken);
 
             String url = AIConfigHelper.AGENT_API_BASE_URL + "/sessions/start";
             RequestBody body = RequestBody.create(payload.toString(), MediaType.parse("application/json; charset=utf-8"));
@@ -5130,7 +5136,7 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
                     String resStr = response.body() != null ? response.body().string() : "";
-                    Log.d(TAG, "sessions/start resp=" + response.code() + " body=" + resStr);
+                    Log.d(TAG, "sessions/start HTTP " + response.code());
                     if (!response.isSuccessful()) {
                         return;
                     }
