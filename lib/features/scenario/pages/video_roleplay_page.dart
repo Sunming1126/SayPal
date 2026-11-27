@@ -5,36 +5,117 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/widgets/common_widgets.dart';
 import '../../realtime/voice/conversation_context.dart';
 import '../../realtime/voice/pages/practice_conversation_page.dart';
 import '../../realtime/voice/voice_conversation_providers.dart';
 import '../data/video_roleplay_lessons.dart';
 
-class VideoRoleplayCatalogPage extends StatelessWidget {
+class VideoRoleplayCatalogPage extends ConsumerStatefulWidget {
   const VideoRoleplayCatalogPage({super.key});
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('视频情景陪练')),
-    body: ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        for (final lesson in videoRoleplayLessons)
-          Card(
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 18,
-                vertical: 8,
+  ConsumerState<VideoRoleplayCatalogPage> createState() =>
+      _VideoRoleplayCatalogPageState();
+}
+
+class _VideoRoleplayCatalogPageState
+    extends ConsumerState<VideoRoleplayCatalogPage> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) => _VideoCatalogScaffold(
+    content: (lessons) {
+      final matching = lessons
+          .where((lesson) {
+            return '${lesson.title} ${lesson.englishTitle}'
+                .toLowerCase()
+                .contains(_query);
+          })
+          .toList(growable: false);
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: TextField(
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: '搜索 ${lessons.length} 节视频课',
               ),
-              leading: const Icon(Icons.play_circle_outline_rounded),
-              title: Text(lesson.title),
-              subtitle: Text(lesson.englishTitle),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => context.push(lesson.route),
+              onChanged: (value) =>
+                  setState(() => _query = value.trim().toLowerCase()),
             ),
           ),
-      ],
-    ),
+          Expanded(
+            child: matching.isEmpty
+                ? const Center(child: Text('没有找到匹配的课程'))
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    itemCount: matching.length,
+                    itemBuilder: (context, index) {
+                      final lesson = matching[index];
+                      return Card(
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 8,
+                          ),
+                          leading: const Icon(
+                            Icons.play_circle_outline_rounded,
+                          ),
+                          title: Text(lesson.title),
+                          subtitle: Text(lesson.englishTitle),
+                          trailing: const Icon(Icons.chevron_right_rounded),
+                          onTap: () => context.push(lesson.route),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class VideoRoleplayLessonPage extends ConsumerWidget {
+  const VideoRoleplayLessonPage({required this.lessonId, super.key});
+
+  final String lessonId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final lesson = ref
+        .watch(videoRoleplayLessonsProvider)
+        .valueOrNull
+        ?.where((lesson) => lesson.id == lessonId)
+        .firstOrNull;
+    if (lesson != null) return VideoRoleplayPage(lesson: lesson);
+    return _VideoCatalogScaffold(
+      content: (_) => const Center(child: Text('这节视频课暂不可用')),
+    );
+  }
+}
+
+class _VideoCatalogScaffold extends ConsumerWidget {
+  const _VideoCatalogScaffold({required this.content});
+
+  final Widget Function(List<VideoRoleplayLesson>) content;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Scaffold(
+    appBar: AppBar(title: const Text('视频情景陪练')),
+    body: ref
+        .watch(videoRoleplayLessonsProvider)
+        .when(
+          data: content,
+          loading: () => const LoadingView(),
+          error: (_, _) => ErrorStateView(
+            title: '暂时无法加载视频课',
+            message: '请检查网络后重试。',
+            onRetry: () => ref.invalidate(videoRoleplayLessonsProvider),
+          ),
+        ),
   );
 }
 
@@ -66,11 +147,11 @@ class _VideoRoleplayPageState extends ConsumerState<VideoRoleplayPage>
 
   Future<void> _loadVideo() async {
     _disposePlayer();
-    final player = VideoPlayerController.asset(widget.lesson.asset);
+    final player = VideoPlayerController.networkUrl(widget.lesson.videoUri);
     _player = player;
     setState(() => _videoError = false);
     try {
-      await player.initialize();
+      await player.initialize().timeout(const Duration(seconds: 15));
       if (!mounted || !identical(_player, player)) return;
       player.addListener(_onVideoChanged);
       setState(() {});

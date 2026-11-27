@@ -1,4 +1,40 @@
+import 'dart:convert';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+
 import '../../realtime/voice/conversation_context.dart';
+
+final _mediaBase = Uri.parse(
+  const String.fromEnvironment(
+    'SAYPAL_VIDEO_PRACTICE_URL',
+    defaultValue: 'https://onesay.top/saypal/video-practice/v1/',
+  ),
+);
+
+final videoRoleplayLessonsProvider = FutureProvider<List<VideoRoleplayLesson>>((
+  ref,
+) async {
+  final client = http.Client();
+  ref.onDispose(client.close);
+  final response = await client
+      .get(_mediaBase.resolve('catalog.json'))
+      .timeout(const Duration(seconds: 10));
+  if (response.statusCode != 200) {
+    throw StateError('Video lesson catalog unavailable');
+  }
+  final rows = jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
+  final lessons = rows
+      .map((row) {
+        return VideoRoleplayLesson.fromJson(row as Map<String, dynamic>);
+      })
+      .toList(growable: false);
+  if (lessons.isEmpty ||
+      lessons.map((lesson) => lesson.id).toSet().length != lessons.length) {
+    throw const FormatException('Invalid video lesson catalog');
+  }
+  return lessons;
+});
 
 class VideoRoleplayLesson {
   const VideoRoleplayLesson({
@@ -12,6 +48,25 @@ class VideoRoleplayLesson {
     required this.objectives,
   });
 
+  factory VideoRoleplayLesson.fromJson(Map<String, dynamic> json) {
+    final id = json['id'] as String;
+    final objectives = List<String>.unmodifiable(json['objectives'] as List);
+    if (!RegExp(r'^[a-z0-9]+(?:-[a-z0-9]+)*$').hasMatch(id) ||
+        objectives.length != 3) {
+      throw const FormatException('Invalid video lesson');
+    }
+    return VideoRoleplayLesson(
+      id: id,
+      title: json['title'] as String,
+      englishTitle: json['englishTitle'] as String,
+      learnerRole: json['learnerRole'] as String,
+      aiRole: json['aiRole'] as String,
+      situation: json['situation'] as String,
+      opening: json['opening'] as String,
+      objectives: objectives,
+    );
+  }
+
   final String id;
   final String title;
   final String englishTitle;
@@ -21,9 +76,14 @@ class VideoRoleplayLesson {
   final String opening;
   final List<String> objectives;
 
-  String get asset => 'assets/videos/scenario/$id.mp4';
+  Uri get videoUri => _mediaBase.resolve('$id.mp4');
   String get catalogId => 'video-$id';
   String get route => '/scenario/video-practice/$id';
+
+  static String? routeFromCatalogId(String? catalogId) =>
+      catalogId != null && catalogId.startsWith('video-')
+      ? '/scenario/video-practice/${catalogId.substring('video-'.length)}'
+      : null;
 
   ConversationContext toContext() => ConversationContext(
     kind: ConversationKind.roleplay,
@@ -35,74 +95,3 @@ class VideoRoleplayLesson {
     objectives: objectives,
   );
 }
-
-const videoRoleplayLessons = [
-  VideoRoleplayLesson(
-    id: 'teachers-office',
-    title: '寻找教师办公室',
-    englishTitle: "Looking for the Teachers’ Office",
-    learnerRole: 'A student looking for the teachers’ office',
-    aiRole: 'A teacher in the school hallway',
-    situation:
-        'In the video a student asks where the teachers’ office is '
-        'and checks the right room. Role-play this exchange. Give one simple '
-        'direction or prompt at a time.',
-    opening: 'Hi! Where are you trying to go?',
-    objectives: [
-      'Ask where the teachers’ office is.',
-      'Check whether you found the right room.',
-      'Thank the teacher for helping.',
-    ],
-  ),
-  VideoRoleplayLesson(
-    id: 'meet-robin',
-    title: '认识机器人 Robin',
-    englishTitle: 'Meet Robin the Robot',
-    learnerRole: 'A student introducing Robin',
-    aiRole: 'A classmate meeting Robin',
-    situation:
-        'The video introduces Robin, a short but strong robot. He can '
-        'speak Chinese, helps clean, and can be strict. Ask the learner to '
-        'introduce Robin and describe things he does in the video.',
-    opening: 'Hi! What is the robot’s name?',
-    objectives: [
-      'Introduce Robin by name.',
-      'Describe Robin using two adjectives from the video.',
-      'Say one thing Robin can do.',
-    ],
-  ),
-  VideoRoleplayLesson(
-    id: 'clever-rat',
-    title: '机智的小老鼠',
-    englishTitle: 'The Silly Snake and the Clever Rat',
-    learnerRole: 'A student retelling the story',
-    aiRole: 'A classmate asking about the story',
-    situation:
-        'In the video a hungry snake catches a rat. The rat talks to '
-        'the snake and wants it to let him go. Ask how the rat talks his way '
-        'out, one question at a time.',
-    opening: 'What animals did you see in the story?',
-    objectives: [
-      'Name the two animals in the story.',
-      'Say why the snake grabbed the rat.',
-      'Retell how the rat tried to get away.',
-    ],
-  ),
-  VideoRoleplayLesson(
-    id: 'favorite-animal',
-    title: '我最喜欢的动物',
-    englishTitle: 'My Favorite Animal',
-    learnerRole: 'A visitor at the aquarium',
-    aiRole: 'A friend looking at penguins',
-    situation:
-        'The video shows a penguin and asks which animal is your '
-        'favorite and why. Start by the penguin tank, then ask the learner '
-        'about their favorite animal and what they like about it.',
-    opening: 'Look at the penguin! What’s your favorite animal?',
-    objectives: [
-      'Name the animal shown in the video.',
-      'Say which animal is your favorite.',
-      'Give one reason you like that animal.',
-    ],
-  ),
-];

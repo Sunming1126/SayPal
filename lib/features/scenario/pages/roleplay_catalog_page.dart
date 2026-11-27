@@ -73,7 +73,9 @@ class RoleplayCatalogPage extends ConsumerWidget {
     };
     final Set<String> seen = <String>{};
     final videos = {
-      for (final lesson in videoRoleplayLessons) lesson.catalogId: lesson,
+      for (final lesson in ref.read(videoRoleplayLessonsProvider).valueOrNull ??
+          const <VideoRoleplayLesson>[])
+        lesson.catalogId: lesson,
     };
     final List<_HistoryItem> history = records.reversed
         .where((SessionLearningRecord item) =>
@@ -84,13 +86,15 @@ class RoleplayCatalogPage extends ConsumerWidget {
           final RoleplayScenario? scenario = official[item.contentId];
           final CustomSceneDraft? draft = custom[item.contentId];
           final video = videos[item.contentId];
+          final videoRoute = VideoRoleplayLesson.routeFromCatalogId(item.contentId);
           return _HistoryItem(
-            title: video?.title ?? scenario?.title ?? draft?.title ?? '已完成的情景',
+            title: video?.title ?? scenario?.title ?? draft?.title ??
+                (videoRoute != null ? '视频情景陪练' : '已完成的情景'),
             subtitle: video?.englishTitle ??
                 scenario?.situation ??
                 draft?.situation ??
                 '情景练习',
-            route: video?.route ??
+            route: videoRoute ??
                 (scenario != null
                     ? '/scenario/roleplay/${scenario.id}'
                     : '/scenario/roleplay/custom/saved'),
