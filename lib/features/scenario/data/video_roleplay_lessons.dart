@@ -123,7 +123,7 @@ class VideoRoleplayLesson {
     try {
       final response = await http
           .get(_mediaBase.resolve('/saypal/video-origin/$endpoint'))
-          .timeout(const Duration(seconds: 4));
+          .timeout(const Duration(seconds: 8));
       if (response.statusCode != 200) return null;
       final decoded = jsonDecode(utf8.decode(response.bodyBytes));
       final video = decoded['topic']['video'] as Map<String, dynamic>;
